@@ -4,6 +4,7 @@ import typer
 
 from scene.agent.config import get_llm_config
 from scene.agent.coordinator.loop import DEFAULT_SYSTEM_PROMPT, run_turn
+from scene.agent.coordinator.tools.story import build_story_tools
 from scene.agent.role import AgentRole
 from scene.core.story import get_story
 from scene.data.database import session_scope
@@ -33,6 +34,8 @@ def chat(story_id: int) -> None:
         typer.echo(f"Could not resolve the coordinating agent's model: {error}")
         raise typer.Exit(code=1) from error
 
+    tools = build_story_tools(story_id)
+
     typer.echo(f"Chatting about story {story_id}: {title}. Type 'exit' or 'quit' to leave.")
 
     history: list[dict[str, Any]] = []
@@ -46,5 +49,5 @@ def chat(story_id: int) -> None:
         if user_message.strip().lower() in EXIT_COMMANDS:
             break
 
-        reply = run_turn(config, history, user_message, tools=(), system_prompt=DEFAULT_SYSTEM_PROMPT)
+        reply = run_turn(config, history, user_message, tools=tools, system_prompt=DEFAULT_SYSTEM_PROMPT)
         typer.echo(f"Coordinator: {reply}")

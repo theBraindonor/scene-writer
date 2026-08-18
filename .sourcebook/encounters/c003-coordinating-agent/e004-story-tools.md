@@ -10,9 +10,9 @@ name: e004-story-tools
 regions:
 - agent
 - cli
-status: draft
+status: completed
 updated_by: John Hoff
-updated_on: '2026-08-18T15:03:51Z'
+updated_on: '2026-08-18T17:46:34Z'
 ---
 
 # E004 — Story Tools
@@ -43,3 +43,11 @@ conversation for the first time.
 - Manually run `scene-coordinator chat <story_id>` and ask the agent to update the story's scenario, then confirm the change with `scene-data story get <story_id>`.
 
 ## Log
+
+### Review - 2026-08-18T17:22:57Z - John Hoff
+
+Reviewed e004-story-tools against the two applicable world-assigned lore items (linting, unit-testing) — both regions (agent, cli) carry no additional region-specific lore. Both items are explicitly and correctly addressed: Plan step 5/Verification require `pdm run lint` with zero errors, and Plan step 4/Verification add `test/scene/agent/coordinator/tools/test_story.py` (correctly mirroring the planned source module) plus extend the existing `test/scene/cli/test_coordinator.py`, with `pdm run pytest` required green. The Plan's assumptions about e001-e003's real interfaces are accurate: `run_turn`'s signature, the `chat(story_id)` command's shape and available `story_id` local, `session_scope()`'s no-required-args form, and all six `scene.core.story` function signatures (including that only `create_story`/`list_stories` omit a `story_id`) match the real source exactly. One minor gap for the implementer, not a lore conflict: Plan step 1 describes the new tools module as exposing a schemas list plus a separate name-to-handler mapping, but `run_turn` actually consumes `Sequence[Tool]` (a combined name+schema+handler dataclass from e002), and the Plan never states how these get assembled into `Tool` instances before being passed into the `chat` command's `run_turn` call. Separately flagged but unverifiable within this review's bounded surface: the Requirements' claim that handlers should match "the existing scene-data CLI's per-operation session pattern" references scene/cli/data.py, which was not part of the cited reading surface. No lore conflicts found; PASS-WITH-NOTES.
+
+### Completed - 2026-08-18T17:46:34Z - John Hoff
+
+Verified: pdm run pytest passes 165/165 with 100% coverage, including the new src/scene/agent/coordinator/tools/story.py (build_story_tools returning Sequence[Tool] directly, per the review's note about run_turn's real signature) and its tests under test/scene/agent/coordinator/tools/test_story.py, covering all six tools including not-found and default-vs-explicit story_id cases. test/scene/cli/test_coordinator.py extended with a scripted tool-call round trip confirming a real update_story call persists via get_story. pdm run lint reports zero errors. Manually ran scene-coordinator chat against a real story and the live LM Studio server, asked it to update the scenario, and confirmed via scene-data story get that the change persisted. DEFAULT_SYSTEM_PROMPT in scene/agent/coordinator/loop.py updated to describe the coordinator's real story-editing capability, replacing the e002 placeholder text.

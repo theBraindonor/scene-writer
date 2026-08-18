@@ -8,7 +8,7 @@ import scene.cli.coordinator as coordinator_module
 import scene.data.database as database_module
 from scene.agent.config import LLMConfig
 from scene.cli.coordinator import app
-from scene.core.story import create_story
+from scene.core.story import create_story, get_story
 from scene.data.database import session_scope
 
 runner = CliRunner()
@@ -102,6 +102,28 @@ def test_chat_eof_ends_repl_cleanly(monkeypatch, story_id):
     result = runner.invoke(app, ["chat", str(story_id)], input="")
 
     assert result.exit_code == 0
+
+
+def test_chat_tool_call_updates_story_and_persists(monkeypatch, story_id):
+    tool_call = FakeToolCall(
+        id="call_1",
+        function=FakeFunctionCall(name="update_story", arguments='{"scenario": "A brand new scenario"}'),
+    )
+    responses = [
+        make_response(content=None),
+        make_response(content="Updated the scenario for you."),
+    ]
+    responses[0].choices[0].message.tool_calls = [tool_call]
+    monkeypatch.setattr(loop_module, "complete", lambda config, messages, tools=None: responses.pop(0))
+
+    result = runner.invoke(app, ["chat", str(story_id)], input="update the scenario please\nexit\n")
+
+    assert result.exit_code == 0
+    assert "Updated the scenario for you." in result.stdout
+
+    with session_scope() as session:
+        story = get_story(session, story_id)
+        assert story.scenario == "A brand new scenario"
 
 
 def test_chat_config_resolution_failure_exits_with_clear_message(monkeypatch, story_id):
