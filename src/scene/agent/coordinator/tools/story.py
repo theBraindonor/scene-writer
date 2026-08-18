@@ -1,6 +1,7 @@
 from typing import Any
 
 from scene.agent.coordinator.loop import Tool
+from scene.agent.coordinator.state import CoordinatorState
 from scene.core.story import (
     archive_story,
     create_story,
@@ -27,7 +28,17 @@ def _not_found(story_id: int) -> dict[str, Any]:
     return {"error": f"Story {story_id} not found"}
 
 
-def build_story_tools(default_story_id: int) -> list[Tool]:
+_NO_CURRENT_STORY = {
+    "error": "No current story. Create one with create_story, or select one with get_story(story_id=...)."
+}
+
+
+def _resolve_story_id(state: CoordinatorState, arguments: dict[str, Any]) -> int | None:
+    story_id = arguments.get("story_id")
+    return story_id if story_id is not None else state.current_story_id
+
+
+def build_story_tools(state: CoordinatorState) -> list[Tool]:
     def create_story_handler(arguments: dict[str, Any]) -> Any:
         with session_scope() as session:
             story = create_story(
@@ -36,13 +47,19 @@ def build_story_tools(default_story_id: int) -> list[Tool]:
                 scenario=arguments["scenario"],
                 style_guidance=arguments.get("style_guidance"),
             )
+            state.current_story_id = story.id
             return _story_dict(story)
 
     def get_story_handler(arguments: dict[str, Any]) -> Any:
-        story_id = arguments.get("story_id", default_story_id)
+        story_id = _resolve_story_id(state, arguments)
+        if story_id is None:
+            return _NO_CURRENT_STORY
         with session_scope() as session:
             story = get_story(session, story_id)
-            return _story_dict(story) if story is not None else _not_found(story_id)
+            if story is None:
+                return _not_found(story_id)
+            state.current_story_id = story_id
+            return _story_dict(story)
 
     def list_stories_handler(arguments: dict[str, Any]) -> Any:
         with session_scope() as session:
@@ -50,7 +67,9 @@ def build_story_tools(default_story_id: int) -> list[Tool]:
             return {"stories": [_story_dict(story) for story in stories]}
 
     def update_story_handler(arguments: dict[str, Any]) -> Any:
-        story_id = arguments.get("story_id", default_story_id)
+        story_id = _resolve_story_id(state, arguments)
+        if story_id is None:
+            return _NO_CURRENT_STORY
         with session_scope() as session:
             story = update_story(
                 session,
@@ -59,19 +78,32 @@ def build_story_tools(default_story_id: int) -> list[Tool]:
                 scenario=arguments.get("scenario"),
                 style_guidance=arguments.get("style_guidance"),
             )
-            return _story_dict(story) if story is not None else _not_found(story_id)
+            if story is None:
+                return _not_found(story_id)
+            state.current_story_id = story_id
+            return _story_dict(story)
 
     def archive_story_handler(arguments: dict[str, Any]) -> Any:
-        story_id = arguments.get("story_id", default_story_id)
+        story_id = _resolve_story_id(state, arguments)
+        if story_id is None:
+            return _NO_CURRENT_STORY
         with session_scope() as session:
             story = archive_story(session, story_id)
-            return _story_dict(story) if story is not None else _not_found(story_id)
+            if story is None:
+                return _not_found(story_id)
+            state.current_story_id = story_id
+            return _story_dict(story)
 
     def unarchive_story_handler(arguments: dict[str, Any]) -> Any:
-        story_id = arguments.get("story_id", default_story_id)
+        story_id = _resolve_story_id(state, arguments)
+        if story_id is None:
+            return _NO_CURRENT_STORY
         with session_scope() as session:
             story = unarchive_story(session, story_id)
-            return _story_dict(story) if story is not None else _not_found(story_id)
+            if story is None:
+                return _not_found(story_id)
+            state.current_story_id = story_id
+            return _story_dict(story)
 
     story_id_property = {
         "type": "integer",

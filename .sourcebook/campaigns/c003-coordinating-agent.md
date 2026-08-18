@@ -5,7 +5,7 @@ created_on: '2026-08-18T14:59:59Z'
 name: c003-coordinating-agent
 status: open
 updated_by: John Hoff
-updated_on: '2026-08-18T15:16:37Z'
+updated_on: '2026-08-18T17:57:04Z'
 ---
 
 # C003 — Coordinating Agent
@@ -14,8 +14,8 @@ updated_on: '2026-08-18T15:16:37Z'
 
 Implement the coordinating agent: a conversational, LLM-driven agent that can edit a story's
 data (story, scene, character, location, and their scene-cast/scene-location assignments) via
-tool calls, initially driven through a new interactive CLI REPL. This is the first agent built
-in `scene.agent`, and establishes the shared LLM-runtime infrastructure that later
+tool calls, driven through a new interactive CLI. This is the first agent built in
+`scene.agent`, and establishes the shared LLM-runtime infrastructure that later
 scene-construction and scene-drafting (rendering) agents will also build on.
 
 Renderings are out of scope for this campaign — the coordinator manages structural story data
@@ -48,13 +48,25 @@ only, not generated prose.
 - **Tool surface**: story, scene, character, and location CRUD, plus `scene_character` and
   `scene_location` assignment tools — mirrors the subset of `scene.core` covering structural
   story data. No rendering tools in this campaign.
-- **CLI interaction model**: an interactive REPL scoped to one story
-  (`scene-coordinator chat <story_id>`). The conversation lives only for that process's
-  lifetime — no persisted chat history/session resume in this campaign.
-- **Incremental interactivity**: the CLI lands early (before any entity tools exist) so the
-  loop and system prompt can be exercised end-to-end as a "friendly assistant" before tool
-  calling is layered in. Once story tools exist, the CLI is revisited to print a live snapshot
-  of the story's underlying data after each turn, so data changes made via tool calls are
-  immediately visible.
+- **CLI interaction model — a two-pane TUI, no required story id**: the CLI first landed
+  (`e003-coordinator-cli`) as a plain-text REPL scoped to a story id passed on the command line
+  (`scene-coordinator chat <story_id>`), with each entity-tools encounter defaulting its
+  single-story tools to that fixed id. Once story tools existed and the agent could list/create
+  stories itself via tool calls, a fixed CLI-supplied story id stopped pulling its weight — so
+  the interaction model pivoted (from `e005-coordinator-cli-state-display` onward) to a
+  [Textual](https://textual.textualize.io/) TUI with two columns: a left-hand chat pane, and a
+  right-hand pane that re-renders the current story's data straight from `scene.core` after
+  every turn, so edits made via tool calls are visible immediately without a separate lookup.
+  `scene-coordinator chat` now takes no story id at all — the "current story" becomes mutable
+  session state (starts unset; set/switched whenever the agent successfully creates or fetches
+  a story by id), which single-story tools default to when the model omits an explicit id, and
+  which the right-hand pane renders. `/quit` exits the app; `/clear` resets both the chat
+  history and the current-story reference to a genuinely blank session. The conversation still
+  lives only for the process's lifetime — no persisted chat history/session resume in this
+  campaign.
+- **Incremental interactivity**: the CLI landed early (before any entity tools existed) so the
+  loop and system prompt could be exercised end-to-end as a "friendly assistant" before tool
+  calling was layered in, then was revisited once story tools existed to add the live TUI state
+  display described above.
 
 ## Log
