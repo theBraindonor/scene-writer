@@ -10,9 +10,9 @@ name: e003-coordinator-cli
 regions:
 - agent
 - cli
-status: draft
+status: completed
 updated_by: John Hoff
-updated_on: '2026-08-18T15:17:45Z'
+updated_on: '2026-08-18T17:15:55Z'
 ---
 
 # E003 — Coordinator CLI
@@ -44,3 +44,13 @@ than waiting for the full tool surface to be built out.
 - Manually run `pdm run scene-coordinator chat <story_id>` against a story created via `scene-data story create`, with a real profile filled into `models.yaml` and `SCENE_COORDINATING_AGENT` set in `.env` pointing at a running LM Studio server, and confirm a conversational reply comes back and the REPL exits cleanly on the exit command.
 
 ## Log
+
+### Review - 2026-08-18T16:21:12Z - John Hoff
+
+Reviewed e003-coordinator-cli against the two applicable world-assigned lore items (linting, unit-testing) and against e001/e002's actual shipped interfaces. Both lore items are explicitly and correctly addressed: Plan step 7 and Verification require `pdm run lint` with zero errors, and Plan step 6/Verification add `test/scene/cli/test_coordinator.py` (correctly mirroring the planned `src/scene/cli/coordinator.py`) with `pdm run pytest` required green. The Plan's assumptions about e001/e002 are accurate on `get_llm_config(AgentRole.COORDINATING)`, `LLMConfig`, `AgentRole`, `get_story`, and the `scene-data` not-found/`pyproject.toml` console-script patterns, all confirmed against the real source. Two minor notes for the implementer, not lore conflicts: (1) Plan step 4's restatement of the `run_turn` call omits the `user_message` argument that the real signature requires alongside `history`, though the Requirements' REPL description makes the intent clear; (2) `load_registry`'s malformed-structure case raises `TypeError` rather than `RuntimeError` (a deliberate e001 deviation), so the config-resolution error handling in Plan step 3 should explicitly catch both types rather than narrowing to `RuntimeError`, or the "malformed models.yaml" Requirement won't actually be satisfied. No lore conflicts found; PASS-WITH-NOTES.
+
+### Completed - 2026-08-18T17:15:55Z - John Hoff
+
+Verified: pdm run pytest passes 152/152 with 100% coverage, including the new src/scene/cli/coordinator.py (scene-coordinator chat <story_id>) and its tests under test/scene/cli/test_coordinator.py, covering story-not-found, a basic conversation turn, the exit command, an immediate-EOF case, and a config-resolution failure surfaced cleanly. pdm run lint reports zero errors. Registered scene-coordinator = "scene.cli.coordinator:app" in pyproject.toml. Manually ran `pdm run scene-coordinator chat <story_id>` against a real story and a live local LM Studio server and got a genuine conversational reply, with the REPL exiting cleanly (exit_code 0) on 'exit'.
+
+Two deviations from Plan, both required to make the CLI actually usable: (1) Typer collapses a Typer() app with exactly one registered command into a bare root command, which would have silently dropped the `chat` subcommand name the Requirements specify (`scene-coordinator <story_id>` instead of `scene-coordinator chat <story_id>`) — fixed by adding an explicit @app.callback(), keeping `chat` addressable and leaving room for future subcommands. (2) Manual verification surfaced a real bug in e001's already-completed src/scene/agent/llm.py: litellm's OpenAI-compatible client raises `OpenAIError: Missing credentials` when no api_key is passed at all, even for a local LM Studio server that doesn't validate one — e001's mocked tests couldn't catch this since it only reproduces on a real network call. Fixed llm.py so that when api_base is set and no api_key is configured, complete() now passes a "not-needed" placeholder; added test/scene/agent/test_llm.py coverage for both the api_base-without-key and api_key-without-api_base branches. e001's encounter body is completed/locked so this fix is recorded here instead.

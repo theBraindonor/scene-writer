@@ -17,6 +17,7 @@ license = {text = "Apache-2.0"}
 
 [project.scripts]
 scene-data = "scene.cli.data:app"
+scene-coordinator = "scene.cli.coordinator:app"
 
 [project.optional-dependencies]
 dev = [

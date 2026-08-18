@@ -9,7 +9,10 @@ def complete(config: LLMConfig, messages: list[dict[str, Any]], tools: list[dict
     kwargs: dict[str, Any] = {"model": config.model, "messages": messages}
     if config.api_base is not None:
         kwargs["api_base"] = config.api_base
-    if config.api_key is not None:
+        # Local OpenAI-compatible servers (e.g. LM Studio) don't validate the key, but
+        # litellm's underlying OpenAI client still requires a non-empty string to be set.
+        kwargs["api_key"] = config.api_key or "not-needed"
+    elif config.api_key is not None:
         kwargs["api_key"] = config.api_key
     if tools is not None:
         kwargs["tools"] = tools

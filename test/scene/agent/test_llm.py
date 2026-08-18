@@ -43,3 +43,42 @@ def test_complete_includes_api_base_api_key_and_tools(monkeypatch):
         "api_key": "sk-test",
         "tools": tools,
     }
+
+
+def test_complete_includes_api_key_without_api_base(monkeypatch):
+    captured = {}
+
+    def fake_completion(**kwargs):
+        captured.update(kwargs)
+        return "response"
+
+    monkeypatch.setattr(llm_module.litellm, "completion", fake_completion)
+
+    config = LLMConfig(model="openrouter/anthropic/claude-3.5-sonnet", api_base=None, api_key="sk-or-test")
+    messages = [{"role": "user", "content": "hello"}]
+
+    complete(config, messages)
+
+    assert captured == {
+        "model": "openrouter/anthropic/claude-3.5-sonnet",
+        "messages": messages,
+        "api_key": "sk-or-test",
+    }
+
+
+def test_complete_defaults_api_key_when_api_base_set_without_key(monkeypatch):
+    captured = {}
+
+    def fake_completion(**kwargs):
+        captured.update(kwargs)
+        return "response"
+
+    monkeypatch.setattr(llm_module.litellm, "completion", fake_completion)
+
+    config = LLMConfig(model="openai/my-model", api_base="http://localhost:1234/v1", api_key=None)
+    messages = [{"role": "user", "content": "hello"}]
+
+    complete(config, messages)
+
+    assert captured["api_base"] == "http://localhost:1234/v1"
+    assert captured["api_key"] == "not-needed"
