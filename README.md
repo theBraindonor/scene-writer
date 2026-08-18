@@ -11,6 +11,7 @@ Scene definitions and generated output are persisted to a local SQLite database.
 
 - `src/scene/cli` — CLI entry points, one per agent.
 - `src/scene/agent` — the two-phase generation pipeline.
+- `src/scene/core` — common service layer shared by the CLI and agents for manipulating scene data.
 - `src/scene/data` — SQLite persistence layer.
 - `src/scene/gui` — planned unified GUI (not yet implemented).
 

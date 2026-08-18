@@ -18,11 +18,12 @@ Scene Writer is an agentic scene-writing tool built around a two-phase generatio
 
 Scene definitions and generated output persist to a local SQLite database.
 
-The project is organized into four core packages under `src/scene/`:
+The project is organized into five core packages under `src/scene/`:
 
 - `scene.cli` — standalone CLI programs, each driving one agent in the pipeline. The primary interface until a GUI exists.
 - `scene.agent` — the pipeline itself: the construction and drafting phases, plus shared agent infrastructure.
-- `scene.data` — the SQLite persistence layer (schema, migrations, data access), consumed by both `scene.cli` and `scene.agent`.
+- `scene.core` — the common service layer, giving `scene.cli` and `scene.agent` a shared interface for manipulating scene data rather than each talking to `scene.data` independently.
+- `scene.data` — the SQLite persistence layer (schema, migrations, data access), consumed by `scene.core`.
 - `scene.gui` — planned unified GUI over the CLI-driven agents. Not yet implemented.
 
 `test/` mirrors `src/`'s package structure without `__init__.py` files (e.g. `src/scene/data/foo.py` → `test/scene/data/test_foo.py`). pytest is configured with `--import-mode=importlib` for this reason — mirrored `__init__.py` files in `test/` would otherwise shadow the real `src/scene` package during collection.
