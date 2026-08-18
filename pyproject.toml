@@ -14,6 +14,13 @@ license = {text = "Apache-2.0"}
 [project.optional-dependencies]
 dev = [
     "crypts-and-commits @ git+https://github.com/theBraindonor/crypts-and-commits.git#subdirectory=packages/crypts-and-commits",
+    "pytest",
+    "pytest-cov",
 ]
 [tool.pdm]
 distribution = false
+
+[tool.pytest.ini_options]
+testpaths = ["test"]
+pythonpath = ["src"]
+addopts = "--import-mode=importlib --cov=src/scene --cov-report=html --cov-report=term"
