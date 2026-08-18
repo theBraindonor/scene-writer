@@ -3,9 +3,9 @@ archived: false
 created_by: John Hoff
 created_on: '2026-08-18T03:48:42Z'
 name: c002-initial-data-model-and-crud
-status: draft
+status: open
 updated_by: John Hoff
-updated_on: '2026-08-18T03:48:42Z'
+updated_on: '2026-08-18T04:06:49Z'
 ---
 
 # C002 — Initial Data Model and CRUD

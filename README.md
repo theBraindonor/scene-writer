@@ -9,11 +9,13 @@ Scene definitions and generated output are persisted to a local SQLite database.
 
 ## Project layout
 
-- `src/scene/cli` — CLI entry points, one per agent.
+- `src/scene/cli` — CLI entry points. Some drive an agent; others, like `scene-data`, provide direct CRUD access to data.
 - `src/scene/agent` — the two-phase generation pipeline.
 - `src/scene/core` — common service layer shared by the CLI and agents for manipulating scene data.
-- `src/scene/data` — SQLite persistence layer.
+- `src/scene/data` — SQLAlchemy models and SQLite persistence layer.
 - `src/scene/gui` — planned unified GUI (not yet implemented).
+
+The SQLite database file lives under a top-level `data/` folder (gitignored; the folder itself is tracked via a placeholder).
 
 ## Development
 
@@ -33,4 +35,10 @@ Run linting:
 
 ```
 pdm run lint
+```
+
+Manage stories via the `scene-data` CLI:
+
+```
+pdm run scene-data story --help
 ```

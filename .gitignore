@@ -6,6 +6,7 @@ __pycache__/
 .pdm-python
 htmlcov/
 .coverage
+data/*.db*
 
 .mcp.json
 .codex/config.toml
