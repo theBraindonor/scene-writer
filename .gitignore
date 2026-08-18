@@ -10,3 +10,5 @@ data/*.db*
 
 .mcp.json
 .codex/config.toml
+.env
+models.yaml

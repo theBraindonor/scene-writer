@@ -1,0 +1,25 @@
+# Named model profiles for scene.agent (see e001-agent-llm-runtime).
+# Copy this file to models.yaml (gitignored) and fill in real values.
+#
+# Each profile is referenced by name from a role-selector env var in .env
+# (SCENE_COORDINATING_AGENT / SCENE_RENDERING_AGENT), so a role can be
+# repointed at a different model by changing one line in .env rather than
+# editing this registry.
+#
+# Fields:
+#   model        Required. A litellm-style model identifier, including its
+#                provider prefix (e.g. openrouter/..., openai/...).
+#   api_base     Optional. Overrides the API base URL; required for a local
+#                OpenAI-compatible server such as LM Studio.
+#   api_key_env  Optional. Name of the environment variable (set in .env)
+#                holding this profile's API key. Omit for a local server
+#                that doesn't require one.
+
+profiles:
+  openrouter-instruct:
+    model: openrouter/anthropic/claude-3.5-sonnet
+    api_key_env: OPENROUTER_API_KEY
+
+  lmstudio-roleplay:
+    model: openai/my-roleplay-model
+    api_base: http://localhost:1234/v1
