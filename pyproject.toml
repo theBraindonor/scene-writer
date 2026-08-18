@@ -1,0 +1,19 @@
+[project]
+name = "scene-writer"
+version = "0.1.0"
+description = "Default template for PDM package"
+authors = [
+    {name = "John Hoff",email = "john.hoff@braindonor.net"},
+]
+dependencies = []
+requires-python = "==3.13.*"
+readme = "README.md"
+license = {text = "Apache-2.0"}
+
+
+[project.optional-dependencies]
+dev = [
+    "crypts-and-commits @ git+https://github.com/theBraindonor/crypts-and-commits.git#subdirectory=packages/crypts-and-commits",
+]
+[tool.pdm]
+distribution = false
