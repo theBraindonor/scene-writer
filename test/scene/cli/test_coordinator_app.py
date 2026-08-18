@@ -1,12 +1,18 @@
 from dataclasses import dataclass, field
 
 import pytest
-from textual.widgets import Input, Static
+from textual.containers import VerticalScroll
+from textual.widgets import Button, Markdown, Static
 
 import scene.agent.coordinator.loop as loop_module
 import scene.data.database as database_module
 from scene.agent.config import LLMConfig
-from scene.cli.coordinator_app import CoordinatorApp
+from scene.cli.coordinator_app import (
+    AgentTurnBlock,
+    ChatInput,
+    CoordinatorApp,
+    UserMessage,
+)
 
 
 @pytest.fixture(autouse=True)
@@ -15,35 +21,46 @@ def isolated_database(tmp_path, monkeypatch):
 
 
 @dataclass
-class FakeFunctionCall:
-    name: str
-    arguments: str
+class FakeFunctionDelta:
+    name: str | None = None
+    arguments: str | None = None
 
 
 @dataclass
-class FakeToolCall:
-    id: str
-    function: FakeFunctionCall
+class FakeToolCallDelta:
+    index: int
+    id: str | None = None
+    function: FakeFunctionDelta | None = None
 
 
 @dataclass
-class FakeMessage:
-    content: str | None
-    tool_calls: list[FakeToolCall] | None = None
+class FakeDelta:
+    content: str | None = None
+    reasoning_content: str | None = None
+    tool_calls: list[FakeToolCallDelta] | None = None
 
 
 @dataclass
 class FakeChoice:
-    message: FakeMessage
+    delta: FakeDelta
 
 
 @dataclass
-class FakeResponse:
+class FakeChunk:
     choices: list[FakeChoice] = field(default_factory=list)
 
 
-def make_response(content):
-    return FakeResponse(choices=[FakeChoice(message=FakeMessage(content=content))])
+def make_chunk(content=None, reasoning_content=None, tool_calls=None):
+    return FakeChunk(choices=[FakeChoice(delta=FakeDelta(content=content, reasoning_content=reasoning_content, tool_calls=tool_calls))])
+
+
+def script_stream(monkeypatch, rounds):
+    rounds = [list(round_chunks) for round_chunks in rounds]
+
+    def fake_stream_complete(config, messages, tools=None):
+        return iter(rounds.pop(0))
+
+    monkeypatch.setattr(loop_module, "stream_complete", fake_stream_complete)
 
 
 def make_config():
@@ -51,10 +68,14 @@ def make_config():
 
 
 async def send(pilot, text):
-    pilot.app.query_one("#chat-input", Input).value = text
+    pilot.app.query_one("#chat-input", ChatInput).text = text
     await pilot.press("enter")
     await pilot.app.workers.wait_for_complete()
     await pilot.pause()
+
+
+def agent_blocks(app):
+    return list(app.query(AgentTurnBlock))
 
 
 async def test_quit_command_exits_app():
@@ -68,88 +89,134 @@ async def test_unknown_slash_command_shows_notice():
     app = CoordinatorApp(make_config())
     async with app.run_test() as pilot:
         await send(pilot, "/bogus")
-        assert app.chat_lines == ["Unknown command: /bogus"]
-
-
-async def test_plain_chat_turn_appends_reply(monkeypatch):
-    responses = [make_response("Hello there!")]
-    monkeypatch.setattr(loop_module, "complete", lambda config, messages, tools=None: responses.pop(0))
-
-    app = CoordinatorApp(make_config())
-    async with app.run_test() as pilot:
-        await send(pilot, "hi")
-
-        assert "You: hi" in app.chat_lines
-        assert "Coordinator: Hello there!" in app.chat_lines
-        assert app.state.history[-1] == {"role": "assistant", "content": "Hello there!"}
-
-
-async def test_story_pane_shows_placeholder_until_a_story_exists():
-    app = CoordinatorApp(make_config())
-    async with app.run_test() as pilot:
-        assert "No current story" in pilot.app.query_one("#story-pane", Static).content
-
-
-async def test_tool_call_creates_story_and_updates_story_pane(monkeypatch):
-    tool_call = FakeToolCall(
-        id="call_1",
-        function=FakeFunctionCall(name="create_story", arguments='{"title": "New Story", "scenario": "A scenario"}'),
-    )
-    responses = [
-        make_response(content=None),
-        make_response(content="Created it!"),
-    ]
-    responses[0].choices[0].message.tool_calls = [tool_call]
-    monkeypatch.setattr(loop_module, "complete", lambda config, messages, tools=None: responses.pop(0))
-
-    app = CoordinatorApp(make_config())
-    async with app.run_test() as pilot:
-        await send(pilot, "please create a story")
-
-        assert app.state.current_story_id is not None
-        pane_text = pilot.app.query_one("#story-pane", Static).content
-        assert "New Story" in pane_text
-        assert "A scenario" in pane_text
+        notices = [str(s.content) for s in app.query("#transcript > Static")]
+        assert notices == ["Unknown command: /bogus"]
 
 
 async def test_blank_input_is_ignored():
     app = CoordinatorApp(make_config())
     async with app.run_test() as pilot:
         await send(pilot, "   ")
-        assert app.chat_lines == []
+        assert app.query("#transcript > *").__len__() == 0
 
 
-async def test_input_submitted_from_other_widget_is_ignored():
+async def test_plain_chat_turn_renders_user_and_agent_blocks(monkeypatch):
+    script_stream(monkeypatch, [[make_chunk(content="Hello"), make_chunk(content=" there!")]])
+
     app = CoordinatorApp(make_config())
+    async with app.run_test() as pilot:
+        await send(pilot, "hi")
 
-    class FakeInput:
-        id = "not-chat-input"
+        user_messages = list(app.query(UserMessage))
+        assert len(user_messages) == 1
+        assert user_messages[0].query_one(Markdown).source == "hi"
 
-    class FakeSubmitted:
-        input = FakeInput()
-        value = "hello"
-
-    async with app.run_test():
-        app.on_input_submitted(FakeSubmitted())
-        assert app.chat_lines == []
-
-
-def test_render_story_pane_handles_missing_story():
-    app = CoordinatorApp(make_config())
-    app.state.current_story_id = 999
-
-    assert "999" in app._render_story_pane()
-    assert "not found" in app._render_story_pane()
+        blocks = agent_blocks(app)
+        assert len(blocks) == 1
+        assert blocks[0].query_one("#answer-text", Markdown).source == "Hello there!"
+        assert blocks[0].query_one("#processing-indicator", Static).display is False
+        assert app.state.history[-1] == {"role": "assistant", "content": "Hello there!"}
 
 
-async def test_clear_resets_history_current_story_and_panes(monkeypatch):
-    tool_call = FakeToolCall(
-        id="call_1",
-        function=FakeFunctionCall(name="create_story", arguments='{"title": "New Story", "scenario": "A scenario"}'),
+async def test_reasoning_expands_then_auto_collapses(monkeypatch):
+    script_stream(
+        monkeypatch,
+        [[make_chunk(reasoning_content="Thinking about it..."), make_chunk(content="The answer.")]],
     )
-    responses = [make_response(content=None), make_response(content="Created it!")]
-    responses[0].choices[0].message.tool_calls = [tool_call]
-    monkeypatch.setattr(loop_module, "complete", lambda config, messages, tools=None: responses.pop(0))
+
+    app = CoordinatorApp(make_config())
+    async with app.run_test() as pilot:
+        await send(pilot, "hi")
+
+        block = agent_blocks(app)[0]
+        assert block.query_one("#thinking-text", Markdown).source == "Thinking about it..."
+        toggle = block.query_one("#thinking-toggle", Button)
+        assert toggle.display is True
+        # Auto-collapsed once answer content started streaming.
+        assert block.query_one("#thinking-text", Markdown).display is False
+
+
+async def test_thinking_toggle_expands_and_stays_expanded(monkeypatch):
+    script_stream(
+        monkeypatch,
+        [[make_chunk(reasoning_content="Thinking about it..."), make_chunk(content="The answer.")]],
+    )
+
+    app = CoordinatorApp(make_config())
+    async with app.run_test() as pilot:
+        await send(pilot, "hi")
+
+        block = agent_blocks(app)[0]
+        assert block.query_one("#thinking-text", Markdown).display is False
+
+        await pilot.click("#thinking-toggle")
+        assert block.query_one("#thinking-text", Markdown).display is True
+
+        # A later turn's streaming must not auto-collapse it again once user-toggled.
+        script_stream(monkeypatch, [[make_chunk(content="Another reply.")]])
+        await send(pilot, "again")
+        assert block.query_one("#thinking-text", Markdown).display is True
+
+
+async def test_tool_call_notice_shows_name_only(monkeypatch):
+    tool_call = FakeToolCallDelta(index=0, id="call_1", function=FakeFunctionDelta(name="create_story"))
+    args = FakeToolCallDelta(index=0, function=FakeFunctionDelta(arguments='{"title": "New Story", "scenario": "A scenario"}'))
+    script_stream(
+        monkeypatch,
+        [
+            [make_chunk(tool_calls=[tool_call]), make_chunk(tool_calls=[args])],
+            [make_chunk(content="Created it!")],
+        ],
+    )
+
+    app = CoordinatorApp(make_config())
+    async with app.run_test() as pilot:
+        await send(pilot, "please create a story")
+
+        block = agent_blocks(app)[0]
+        tool_calls_text = str(block.query_one("#tool-calls", Static).content)
+        assert "create_story" in tool_calls_text
+        assert "New Story" not in tool_calls_text
+        assert "A scenario" not in tool_calls_text
+
+
+async def test_story_pane_updates_after_tool_call(monkeypatch):
+    tool_call = FakeToolCallDelta(index=0, id="call_1", function=FakeFunctionDelta(name="create_story"))
+    args = FakeToolCallDelta(index=0, function=FakeFunctionDelta(arguments='{"title": "New Story", "scenario": "A scenario"}'))
+    script_stream(
+        monkeypatch,
+        [
+            [make_chunk(tool_calls=[tool_call]), make_chunk(tool_calls=[args])],
+            [make_chunk(content="Created it!")],
+        ],
+    )
+
+    app = CoordinatorApp(make_config())
+    async with app.run_test() as pilot:
+        await send(pilot, "please create a story")
+
+        assert app.state.current_story_id is not None
+        pane_text = str(app.query_one("#story-pane", Static).content)
+        assert "New Story" in pane_text
+        assert "A scenario" in pane_text
+
+
+async def test_story_pane_shows_placeholder_until_a_story_exists():
+    app = CoordinatorApp(make_config())
+    async with app.run_test():
+        assert "No current story" in str(app.query_one("#story-pane", Static).content)
+
+
+async def test_clear_resets_history_current_story_transcript_and_pane(monkeypatch):
+    tool_call = FakeToolCallDelta(index=0, id="call_1", function=FakeFunctionDelta(name="create_story"))
+    args = FakeToolCallDelta(index=0, function=FakeFunctionDelta(arguments='{"title": "New Story", "scenario": "A scenario"}'))
+    script_stream(
+        monkeypatch,
+        [
+            [make_chunk(tool_calls=[tool_call]), make_chunk(tool_calls=[args])],
+            [make_chunk(content="Created it!")],
+        ],
+    )
 
     app = CoordinatorApp(make_config())
     async with app.run_test() as pilot:
@@ -160,5 +227,134 @@ async def test_clear_resets_history_current_story_and_panes(monkeypatch):
 
         assert app.state.current_story_id is None
         assert app.state.history == []
-        assert app.chat_lines == []
-        assert "No current story" in pilot.app.query_one("#story-pane", Static).content
+        assert len(list(app.query("#transcript > *"))) == 0
+        assert "No current story" in str(app.query_one("#story-pane", Static).content)
+
+
+def test_newline_key_set_includes_ctrl_j():
+    from scene.cli.coordinator_app import NEWLINE_KEYS
+
+    assert "ctrl+j" in NEWLINE_KEYS
+    assert "shift+enter" in NEWLINE_KEYS
+
+
+async def test_ctrl_j_inserts_newline_instead_of_submitting(monkeypatch):
+    def unexpected_stream_complete(config, messages, tools=None):
+        raise AssertionError("stream_complete() should not be called for a newline key")
+
+    monkeypatch.setattr(loop_module, "stream_complete", unexpected_stream_complete)
+
+    app = CoordinatorApp(make_config())
+    async with app.run_test() as pilot:
+        chat_input = app.query_one("#chat-input", ChatInput)
+        chat_input.focus()
+        await pilot.press("h", "i", "ctrl+j", "t", "h", "e", "r", "e")
+        await pilot.pause()
+
+        assert chat_input.text == "hi\nthere"
+        assert len(list(app.query("#transcript > *"))) == 0
+
+
+async def test_typing_a_printable_character_inserts_it(monkeypatch):
+    app = CoordinatorApp(make_config())
+    async with app.run_test() as pilot:
+        chat_input = app.query_one("#chat-input", ChatInput)
+        chat_input.focus()
+        await pilot.press("x")
+        await pilot.pause()
+
+        assert chat_input.text == "x"
+
+
+def test_on_button_pressed_ignores_unrelated_buttons():
+    class FakeButton:
+        id = "not-thinking-toggle"
+
+    class FakeEvent:
+        button = FakeButton()
+
+        def stop(self):
+            raise AssertionError("stop() should not be called for an unrelated button")
+
+    block = AgentTurnBlock()
+    block.on_button_pressed(FakeEvent())
+    assert block._thinking_user_toggled is False
+
+
+def test_render_story_pane_handles_missing_story():
+    app = CoordinatorApp(make_config())
+    app.state.current_story_id = 999
+
+    assert "999" in app._render_story_pane()
+    assert "not found" in app._render_story_pane()
+
+
+async def test_message_blocks_stay_content_sized_and_transcript_scrolls(monkeypatch):
+    script_stream(monkeypatch, [[make_chunk(content=f"Reply {i}.")] for i in range(6)])
+
+    app = CoordinatorApp(make_config())
+    async with app.run_test(size=(100, 40)) as pilot:
+        for i in range(6):
+            await send(pilot, f"message {i}")
+
+        blocks = agent_blocks(app)
+        assert len(blocks) == 6
+        # A block's height must come from its own content ("auto"), not an equal
+        # 1fr share of the transcript that shrinks every widget as more are added.
+        for block in blocks:
+            assert str(block.styles.height) == "auto"
+
+        transcript = app.query_one("#transcript")
+        assert transcript.virtual_size.height > transcript.size.height
+        assert transcript.max_scroll_y > 0
+
+
+async def test_chat_input_shows_at_least_two_content_rows():
+    app = CoordinatorApp(make_config())
+    async with app.run_test(size=(100, 40)) as pilot:
+        await pilot.pause()
+        chat_input = app.query_one("#chat-input", ChatInput)
+        assert chat_input.size.height >= 2
+
+
+async def test_transcript_auto_scrolls_on_every_streamed_event(monkeypatch):
+    script_stream(
+        monkeypatch,
+        [[make_chunk(content="a"), make_chunk(content="b"), make_chunk(content="c")]],
+    )
+
+    calls = []
+    original_scroll_end = VerticalScroll.scroll_end
+
+    def spy_scroll_end(self, *args, **kwargs):
+        if self.id == "transcript":
+            calls.append(1)
+        return original_scroll_end(self, *args, **kwargs)
+
+    monkeypatch.setattr(VerticalScroll, "scroll_end", spy_scroll_end)
+
+    app = CoordinatorApp(make_config())
+    async with app.run_test() as pilot:
+        await send(pilot, "hi")
+
+        # One scroll per streamed event (3 content deltas + TurnComplete), not just
+        # a single scroll at the very end of the turn.
+        assert calls.count(1) >= 4
+
+
+async def test_ordered_list_does_not_blow_out_block_height(monkeypatch):
+    script_stream(
+        monkeypatch,
+        [[make_chunk(content="A list:\n\n1. First item\n2. Second item\n3. Third item\n")]],
+    )
+
+    app = CoordinatorApp(make_config())
+    async with app.run_test(size=(100, 40)) as pilot:
+        await send(pilot, "give me a list")
+
+        block = agent_blocks(app)[0]
+        # Each list-item row should be its natural one-line content height, not an
+        # equal 1fr share of whatever space Textual's Markdown widget happens to see.
+        for row in block.query_one("#answer-text", Markdown).query("Horizontal"):
+            assert row.size.height == 1
+        assert block.region.height < 15

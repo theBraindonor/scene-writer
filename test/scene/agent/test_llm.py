@@ -1,6 +1,6 @@
 import scene.agent.llm as llm_module
 from scene.agent.config import LLMConfig
-from scene.agent.llm import complete
+from scene.agent.llm import complete, stream_complete
 
 
 def test_complete_passes_model_and_messages(monkeypatch):
@@ -82,3 +82,46 @@ def test_complete_defaults_api_key_when_api_base_set_without_key(monkeypatch):
 
     assert captured["api_base"] == "http://localhost:1234/v1"
     assert captured["api_key"] == "not-needed"
+
+
+def test_stream_complete_passes_stream_true(monkeypatch):
+    captured = {}
+
+    def fake_completion(**kwargs):
+        captured.update(kwargs)
+        return iter(["chunk"])
+
+    monkeypatch.setattr(llm_module.litellm, "completion", fake_completion)
+
+    config = LLMConfig(model="openai/my-model", api_base=None, api_key=None)
+    messages = [{"role": "user", "content": "hello"}]
+
+    result = stream_complete(config, messages)
+
+    assert list(result) == ["chunk"]
+    assert captured == {"model": "openai/my-model", "messages": messages, "stream": True}
+
+
+def test_stream_complete_includes_api_base_api_key_and_tools(monkeypatch):
+    captured = {}
+
+    def fake_completion(**kwargs):
+        captured.update(kwargs)
+        return iter([])
+
+    monkeypatch.setattr(llm_module.litellm, "completion", fake_completion)
+
+    config = LLMConfig(model="openai/my-model", api_base="http://localhost:1234/v1", api_key="sk-test")
+    messages = [{"role": "user", "content": "hello"}]
+    tools = [{"type": "function", "function": {"name": "noop"}}]
+
+    stream_complete(config, messages, tools=tools)
+
+    assert captured == {
+        "model": "openai/my-model",
+        "messages": messages,
+        "api_base": "http://localhost:1234/v1",
+        "api_key": "sk-test",
+        "tools": tools,
+        "stream": True,
+    }

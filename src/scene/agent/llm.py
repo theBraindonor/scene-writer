@@ -5,7 +5,9 @@ import litellm
 from scene.agent.config import LLMConfig
 
 
-def complete(config: LLMConfig, messages: list[dict[str, Any]], tools: list[dict[str, Any]] | None = None) -> Any:
+def _build_kwargs(
+    config: LLMConfig, messages: list[dict[str, Any]], tools: list[dict[str, Any]] | None
+) -> dict[str, Any]:
     kwargs: dict[str, Any] = {"model": config.model, "messages": messages}
     if config.api_base is not None:
         kwargs["api_base"] = config.api_base
@@ -16,5 +18,12 @@ def complete(config: LLMConfig, messages: list[dict[str, Any]], tools: list[dict
         kwargs["api_key"] = config.api_key
     if tools is not None:
         kwargs["tools"] = tools
+    return kwargs
 
-    return litellm.completion(**kwargs)
+
+def complete(config: LLMConfig, messages: list[dict[str, Any]], tools: list[dict[str, Any]] | None = None) -> Any:
+    return litellm.completion(**_build_kwargs(config, messages, tools))
+
+
+def stream_complete(config: LLMConfig, messages: list[dict[str, Any]], tools: list[dict[str, Any]] | None = None) -> Any:
+    return litellm.completion(**_build_kwargs(config, messages, tools), stream=True)
