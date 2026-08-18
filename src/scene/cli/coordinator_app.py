@@ -16,11 +16,14 @@ from scene.agent.coordinator.loop import (
 )
 from scene.agent.coordinator.state import CoordinatorState
 from scene.agent.coordinator.tools.character import build_character_tools
+from scene.agent.coordinator.tools.location import build_location_tools
 from scene.agent.coordinator.tools.scene import build_scene_tools
 from scene.agent.coordinator.tools.story import build_story_tools
 from scene.core.character import list_characters
+from scene.core.location import list_locations
 from scene.core.scene import list_scenes
 from scene.core.scene_character import list_characters_for_scene
+from scene.core.scene_location import list_locations_for_scene
 from scene.core.story import get_story
 from scene.data.database import session_scope
 
@@ -212,6 +215,7 @@ class CoordinatorApp(App[None]):
             *build_story_tools(self.state),
             *build_scene_tools(self.state),
             *build_character_tools(self.state),
+            *build_location_tools(self.state),
         ]
         self._active_block: AgentTurnBlock | None = None
 
@@ -310,6 +314,15 @@ class CoordinatorApp(App[None]):
             else:
                 lines.append("  (none yet)")
             lines.append("")
+            lines.append("Locations:")
+            locations = list_locations(session, story_id)
+            if locations:
+                for location in locations:
+                    lines.append(f"  {location.name}")
+                    lines.append(f"     Description: {location.description or '(none)'}")
+            else:
+                lines.append("  (none yet)")
+            lines.append("")
             lines.append("Scenes:")
             scenes = list_scenes(session, story_id)
             if scenes:
@@ -321,6 +334,9 @@ class CoordinatorApp(App[None]):
                     scene_characters = list_characters_for_scene(session, scene.id)
                     character_names = ", ".join(character.name for character in scene_characters) or "(none)"
                     lines.append(f"     Characters: {character_names}")
+                    scene_locations = list_locations_for_scene(session, scene.id)
+                    location_names = ", ".join(location.name for location in scene_locations) or "(none)"
+                    lines.append(f"     Locations: {location_names}")
             else:
                 lines.append("  (none yet)")
             return "\n".join(lines)
