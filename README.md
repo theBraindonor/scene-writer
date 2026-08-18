@@ -5,7 +5,7 @@ Scene Writer is an agentic, AI-assisted scene-writing tool built around a two-ph
 1. **Scene Construction** — establishes the overall details of a scene (setting, characters, goals, constraints, etc.) before any prose is generated.
 2. **Scene Drafting** — incrementally builds the scene's prose, using the construction-phase details together with the output of previously generated scenes for continuity.
 
-Scene definitions and generated output are persisted to a local SQLite database. The project ships as a collection of standalone CLI programs, each driving one agent in the pipeline, with the long-term goal of layering a unified GUI on top of these CLI-driven building blocks.
+Scene definitions and generated output are persisted to a local SQLite database. The project ships as a collection of standalone CLI programs, each driving one agent in the pipeline, with the long-term goal of layering a unified GUI on top of these CLI-driven building blocks. A separate coordinating agent, driven by its own conversational CLI, lets a writer build and edit a story's structural data (its scenes, cast, and locations) ahead of generation.
 
 ## Project layout
 
@@ -49,3 +49,23 @@ Manage persisted data via the `scene-data` CLI:
 ```
 pdm run scene-data --help
 ```
+
+Chat with the coordinating agent via the `scene-coordinator` CLI, a Textual TUI with a chat
+column on the left and a live-updating story-state pane on the right:
+
+```
+pdm run scene-coordinator chat
+```
+
+There's no story id to pass — the agent creates or selects a story conversationally, and the
+right-hand pane re-renders that story's full data (scenes, cast, locations, and their
+assignments) after every turn. `/quit` exits; `/clear` resets the conversation and current
+story.
+
+The coordinating agent's LLM connection is configured via two gitignored files, each with a
+committed `.example` template: `models.yaml` defines named model profiles (a litellm-style
+model string, plus an optional `api_base` for a local OpenAI-compatible server such as LM
+Studio, and an optional `api_key_env` for a hosted provider such as OpenRouter), and `.env`
+selects which profile the coordinating agent uses via `SCENE_COORDINATING_AGENT`
+(`SCENE_RENDERING_AGENT` is reserved for a future rendering agent). Switching between a hosted
+provider and a local server is then just a one-line `.env` edit.

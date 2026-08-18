@@ -9,9 +9,9 @@ kind: scripted
 name: e009-readme-coordinator-cli-section
 regions:
 - cli
-status: draft
+status: completed
 updated_by: John Hoff
-updated_on: '2026-08-18T18:33:27Z'
+updated_on: '2026-08-18T22:06:29Z'
 ---
 
 # E009 — README Coordinator CLI Section
@@ -39,3 +39,11 @@ was drafted against.
 - Run `pdm run lint` and confirm zero errors (no source files are touched, but this keeps the verification step consistent with the rest of the campaign).
 
 ## Log
+
+### Review - 2026-08-18T22:01:37Z - John Hoff
+
+Reviewed e009-readme-coordinator-cli-section against the two applicable lore items (linting, unit-testing). Linting is honored via an explicit pdm run lint verification step despite no source files being touched. Unit-testing is honored via an explicit, justified exemption for documentation-only changes with no code behavior to cover, consistent with the c002-initial-data-model-and-crud README-encounter precedent it cites. Spot-checked README.md (explicitly named in the encounter) and confirmed the Plan's integration point — the existing scene-data CLI subsection under ## Development — and its claim of stale 'planned unified GUI' framing both exist as described, so the Plan is concretely grounded rather than vague. No lore conflicts found; PASS-WITH-NOTES.
+
+### Completed - 2026-08-18T22:06:29Z - John Hoff
+
+Verified: README.md updated with a "Chat with the coordinating agent via the scene-coordinator CLI" subsection under Development (Textual TUI, no story id, chat/story-pane layout, /quit and /clear) plus a paragraph on the models.yaml/.env two-layer LLM config (SCENE_COORDINATING_AGENT, SCENE_RENDERING_AGENT reserved), consistent with the existing scene-data CLI mention's light-touch style. Also lightly updated the intro paragraph to mention the coordinating agent as a separate conversational tool for building structural story data ahead of generation, since that framing was stale (mentioned only the two-phase generation pipeline). pdm run lint reports zero errors; no source files changed, no tests added, per the documentation-only scope. Developer manually reviewed the rendered README diff and confirmed it reads clearly and accurately.

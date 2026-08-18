@@ -3,9 +3,9 @@ archived: false
 created_by: John Hoff
 created_on: '2026-08-18T14:59:59Z'
 name: c003-coordinating-agent
-status: open
+status: completed
 updated_by: John Hoff
-updated_on: '2026-08-18T17:57:04Z'
+updated_on: '2026-08-18T22:06:37Z'
 ---
 
 # C003 — Coordinating Agent
@@ -70,3 +70,7 @@ only, not generated prose.
   display described above.
 
 ## Log
+
+### Completed - 2026-08-18T22:06:37Z - John Hoff
+
+All nine encounters (e001-e009, plus the unplanned e005a follow-on) shipped the coordinating agent end to end: in-process LiteLLM runtime with a named model registry and per-role .env selectors (e001); a generic multi-round tool-calling loop (e002); an interactive CLI that evolved from a plain-text, story-id-scoped REPL (e003) into a story-id-free Textual TUI with a live right-hand story-state pane (e005) and then streaming responses, Markdown rendering, message blocks, a Thinking section, and a multi-line input (e005a); and full CRUD-plus-assignment tool coverage for story (e004), scene (e006), character (e007), and location (e008) data, each pass extending the right-hand pane and system prompt to match. A clear pattern emerged across e006-e008: encounters drafted with "brief" pane summaries were consistently expanded post-review, per developer feedback during manual verification, to full per-entity detail plus per-scene assigned-entity lists — by e008 this was anticipated directly in the draft rather than discovered again through another review cycle, which is a good model for future campaigns with a similar iterate-on-a-live-UI shape. README updated (e009) to document the shipped CLI and its config. Renderings remain explicitly out of scope, reserved for a future rendering-agent campaign that can now build on this same tool-loop and registry infrastructure.
