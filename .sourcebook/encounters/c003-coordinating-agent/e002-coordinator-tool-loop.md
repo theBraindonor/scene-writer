@@ -9,9 +9,9 @@ kind: scripted
 name: e002-coordinator-tool-loop
 regions:
 - agent
-status: draft
+status: completed
 updated_by: John Hoff
-updated_on: '2026-08-18T15:17:36Z'
+updated_on: '2026-08-18T16:15:27Z'
 ---
 
 # E002 — Coordinator Tool Loop
@@ -44,3 +44,11 @@ it's serving — that's the caller's concern.
 - Manually trace through one scripted mocked scenario (a tool call followed by a final reply) to confirm the message history sent to `complete()` on the second call includes the tool result in the shape the OpenAI/LiteLLM tool-calling protocol expects.
 
 ## Log
+
+### Review - 2026-08-18T16:09:41Z - John Hoff
+
+Reviewed e002-coordinator-tool-loop against the two applicable world-assigned lore items (linting, unit-testing) and against e001's actual shipped interfaces. Both lore items are explicitly and correctly addressed: Plan step 5 and Verification require `pdm run lint` with zero errors, and Plan step 4/Verification require new tests under `test/scene/agent/...` (mirroring the eventual source module location) with `pdm run pytest` green, covering all four scenarios called out in Requirements. The Plan's assumptions about e001 are accurate: `complete(config, messages, tools=None)` in `scene.agent.llm`, the frozen `LLMConfig` dataclass, and `AgentRole` are all described and used consistently with the real source in `src/scene/agent/{llm,config,role,registry}.py`, and the module correctly avoids resolving `AgentRole`/`.env`/the registry itself, leaving that to the caller. One minor open point, not a defect: the exact test file path (`test/scene/agent/test_coordinator.py` vs. a nested `coordinator/test_loop.py`) is left pending the final source layout, though the Plan explicitly commits to mirroring whichever layout is chosen, satisfying the lore's actual rule. No lore conflicts found; PASS-WITH-NOTES.
+
+### Completed - 2026-08-18T16:15:27Z - John Hoff
+
+Verified: pdm run pytest passes 145/145 with 100% coverage, including the new src/scene/agent/coordinator/loop.py (Tool dataclass, run_turn, DEFAULT_SYSTEM_PROMPT) and its tests under test/scene/agent/coordinator/test_loop.py, covering a plain turn, a single tool-call round trip, multiple sequential tool calls in one turn, and an unknown-tool error fed back as a tool result rather than raised. pdm run lint reports zero errors. Manually traced a scripted tool-call round trip and confirmed the second complete() call's outgoing messages include system, user, the assistant message with tool_calls, and the tool-role result message in the exact OpenAI/LiteLLM tool-calling shape. Implemented as src/scene/agent/coordinator/loop.py (not a __init__.py-only module) to leave room for the coordinator package's planned tools/ subpackage in later encounters.
