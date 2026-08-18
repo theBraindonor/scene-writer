@@ -7,6 +7,7 @@ from scene.core.character import (
     list_characters,
     update_character,
 )
+from scene.core.location import create_location, delete_location, get_location, list_locations, update_location
 from scene.core.rendering import (
     create_rendering,
     delete_rendering,
@@ -20,6 +21,12 @@ from scene.core.scene_character import (
     list_characters_for_scene,
     list_scenes_for_character,
     unassign_character,
+)
+from scene.core.scene_location import (
+    assign_location,
+    list_locations_for_scene,
+    list_scenes_for_location,
+    unassign_location,
 )
 from scene.core.story import (
     archive_story,
@@ -42,6 +49,10 @@ character_app = typer.Typer(help="Manage characters.")
 app.add_typer(character_app, name="character")
 scene_character_app = typer.Typer(help="Manage scene cast assignments.")
 app.add_typer(scene_character_app, name="scene-character")
+location_app = typer.Typer(help="Manage locations.")
+app.add_typer(location_app, name="location")
+scene_location_app = typer.Typer(help="Manage scene location assignments.")
+app.add_typer(scene_location_app, name="scene-location")
 
 
 @story_app.command("create")
@@ -324,5 +335,90 @@ def scene_character_list_for_scene(scene_id: int) -> None:
 def scene_character_list_for_character(character_id: int) -> None:
     with session_scope() as session:
         scenes = list_scenes_for_character(session, character_id)
+        for scene in scenes:
+            typer.echo(f"{scene.id}\t{scene.position}\t{scene.heading or ''}")
+
+
+@location_app.command("create")
+def location_create(story_id: int, name: str, description: str | None = None) -> None:
+    with session_scope() as session:
+        location = create_location(session, story_id=story_id, name=name, description=description)
+        typer.echo(f"Created location {location.id}: {location.name}")
+
+
+@location_app.command("list")
+def location_list(story_id: int) -> None:
+    with session_scope() as session:
+        locations = list_locations(session, story_id)
+        for location in locations:
+            typer.echo(f"{location.id}\t{location.name}")
+
+
+@location_app.command("get")
+def location_get(location_id: int) -> None:
+    with session_scope() as session:
+        location = get_location(session, location_id)
+        if location is None:
+            typer.echo(f"Location {location_id} not found")
+            raise typer.Exit(code=1)
+        typer.echo(f"id: {location.id}")
+        typer.echo(f"story_id: {location.story_id}")
+        typer.echo(f"name: {location.name}")
+        typer.echo(f"description: {location.description}")
+
+
+@location_app.command("update")
+def location_update(location_id: int, name: str | None = None, description: str | None = None) -> None:
+    with session_scope() as session:
+        location = update_location(session, location_id, name=name, description=description)
+        if location is None:
+            typer.echo(f"Location {location_id} not found")
+            raise typer.Exit(code=1)
+        typer.echo(f"Updated location {location.id}")
+
+
+@location_app.command("delete")
+def location_delete(location_id: int) -> None:
+    with session_scope() as session:
+        deleted = delete_location(session, location_id)
+        if not deleted:
+            typer.echo(f"Location {location_id} not found")
+            raise typer.Exit(code=1)
+        typer.echo(f"Deleted location {location_id}")
+
+
+@scene_location_app.command("assign")
+def scene_location_assign(scene_id: int, location_id: int) -> None:
+    with session_scope() as session:
+        try:
+            assign_location(session, scene_id=scene_id, location_id=location_id)
+        except ValueError as error:
+            typer.echo(str(error))
+            raise typer.Exit(code=1) from error
+        typer.echo(f"Assigned location {location_id} to scene {scene_id}")
+
+
+@scene_location_app.command("unassign")
+def scene_location_unassign(scene_id: int, location_id: int) -> None:
+    with session_scope() as session:
+        unassigned = unassign_location(session, scene_id=scene_id, location_id=location_id)
+        if not unassigned:
+            typer.echo(f"Location {location_id} is not assigned to scene {scene_id}")
+            raise typer.Exit(code=1)
+        typer.echo(f"Unassigned location {location_id} from scene {scene_id}")
+
+
+@scene_location_app.command("list-for-scene")
+def scene_location_list_for_scene(scene_id: int) -> None:
+    with session_scope() as session:
+        locations = list_locations_for_scene(session, scene_id)
+        for location in locations:
+            typer.echo(f"{location.id}\t{location.name}")
+
+
+@scene_location_app.command("list-for-location")
+def scene_location_list_for_location(location_id: int) -> None:
+    with session_scope() as session:
+        scenes = list_scenes_for_location(session, location_id)
         for scene in scenes:
             typer.echo(f"{scene.id}\t{scene.position}\t{scene.heading or ''}")

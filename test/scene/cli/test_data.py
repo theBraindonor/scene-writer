@@ -335,3 +335,122 @@ def test_unassign_missing_character():
 
     assert result.exit_code == 1
     assert "not assigned" in result.stdout
+
+
+def test_create_and_list_location():
+    runner.invoke(app, ["story", "create", "My Story", "A scenario"])
+
+    result = runner.invoke(app, ["location", "create", "1", "Castle", "--description", "A ruin"])
+    assert result.exit_code == 0
+    assert "Created location 1" in result.stdout
+
+    result = runner.invoke(app, ["location", "list", "1"])
+    assert result.exit_code == 0
+    assert "Castle" in result.stdout
+
+
+def test_get_location():
+    runner.invoke(app, ["story", "create", "My Story", "A scenario"])
+    runner.invoke(app, ["location", "create", "1", "Castle"])
+
+    result = runner.invoke(app, ["location", "get", "1"])
+
+    assert result.exit_code == 0
+    assert "name: Castle" in result.stdout
+
+
+def test_get_missing_location():
+    result = runner.invoke(app, ["location", "get", "999"])
+
+    assert result.exit_code == 1
+    assert "not found" in result.stdout
+
+
+def test_update_location():
+    runner.invoke(app, ["story", "create", "My Story", "A scenario"])
+    runner.invoke(app, ["location", "create", "1", "Castle"])
+
+    result = runner.invoke(app, ["location", "update", "1", "--description", "A ruin"])
+
+    assert result.exit_code == 0
+    result = runner.invoke(app, ["location", "get", "1"])
+    assert "description: A ruin" in result.stdout
+
+
+def test_update_missing_location():
+    result = runner.invoke(app, ["location", "update", "999", "--name", "New"])
+
+    assert result.exit_code == 1
+    assert "not found" in result.stdout
+
+
+def test_delete_location():
+    runner.invoke(app, ["story", "create", "My Story", "A scenario"])
+    runner.invoke(app, ["location", "create", "1", "Castle"])
+
+    result = runner.invoke(app, ["location", "delete", "1"])
+    assert result.exit_code == 0
+
+    result = runner.invoke(app, ["location", "get", "1"])
+    assert result.exit_code == 1
+
+
+def test_delete_missing_location():
+    result = runner.invoke(app, ["location", "delete", "999"])
+
+    assert result.exit_code == 1
+    assert "not found" in result.stdout
+
+
+def test_assign_and_list_locations_for_scene():
+    runner.invoke(app, ["story", "create", "My Story", "A scenario"])
+    runner.invoke(app, ["scene", "create", "1", "0", "The hero arrives."])
+    runner.invoke(app, ["location", "create", "1", "Castle"])
+
+    result = runner.invoke(app, ["scene-location", "assign", "1", "1"])
+    assert result.exit_code == 0
+    assert "Assigned location 1 to scene 1" in result.stdout
+
+    result = runner.invoke(app, ["scene-location", "list-for-scene", "1"])
+    assert result.exit_code == 0
+    assert "Castle" in result.stdout
+
+    result = runner.invoke(app, ["scene-location", "list-for-location", "1"])
+    assert result.exit_code == 0
+    assert result.stdout.startswith("1\t0")
+
+
+def test_assign_cross_story_location():
+    runner.invoke(app, ["story", "create", "Story One", "A scenario"])
+    runner.invoke(app, ["scene", "create", "1", "0", "The hero arrives."])
+    runner.invoke(app, ["story", "create", "Story Two", "Another scenario"])
+    runner.invoke(app, ["location", "create", "2", "Forest"])
+
+    result = runner.invoke(app, ["scene-location", "assign", "1", "1"])
+
+    assert result.exit_code == 1
+    assert "different stories" in result.stdout
+
+
+def test_unassign_location():
+    runner.invoke(app, ["story", "create", "My Story", "A scenario"])
+    runner.invoke(app, ["scene", "create", "1", "0", "The hero arrives."])
+    runner.invoke(app, ["location", "create", "1", "Castle"])
+    runner.invoke(app, ["scene-location", "assign", "1", "1"])
+
+    result = runner.invoke(app, ["scene-location", "unassign", "1", "1"])
+    assert result.exit_code == 0
+
+    result = runner.invoke(app, ["scene-location", "list-for-scene", "1"])
+    assert "Castle" not in result.stdout
+
+
+def test_unassign_missing_location():
+    runner.invoke(app, ["story", "create", "My Story", "A scenario"])
+    runner.invoke(app, ["scene", "create", "1", "0", "The hero arrives."])
+    runner.invoke(app, ["location", "create", "1", "Castle"])
+
+    result = runner.invoke(app, ["scene-location", "unassign", "1", "1"])
+
+    assert result.exit_code == 1
+    assert "not assigned" in result.stdout
