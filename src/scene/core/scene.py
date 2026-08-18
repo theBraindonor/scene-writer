@@ -11,6 +11,7 @@ def create_scene(
     description: str,
     heading: str | None = None,
     required_actions: str | None = None,
+    length: str | None = None,
 ) -> Scene:
     scene = Scene(
         story_id=story_id,
@@ -18,6 +19,7 @@ def create_scene(
         description=description,
         heading=heading,
         required_actions=required_actions,
+        length=length,
     )
     session.add(scene)
     session.commit()
@@ -41,6 +43,7 @@ def update_scene(
     heading: str | None = None,
     description: str | None = None,
     required_actions: str | None = None,
+    length: str | None = None,
 ) -> Scene | None:
     scene = get_scene(session, scene_id)
     if scene is None:
@@ -53,6 +56,8 @@ def update_scene(
         scene.description = description
     if required_actions is not None:
         scene.required_actions = required_actions
+    if length is not None:
+        scene.length = length
     session.commit()
     session.refresh(scene)
     return scene

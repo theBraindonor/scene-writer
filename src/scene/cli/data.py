@@ -126,6 +126,7 @@ def scene_create(
     description: str,
     heading: str | None = None,
     required_actions: str | None = None,
+    length: str | None = None,
 ) -> None:
     with session_scope() as session:
         scene = create_scene(
@@ -135,6 +136,7 @@ def scene_create(
             description=description,
             heading=heading,
             required_actions=required_actions,
+            length=length,
         )
         typer.echo(f"Created scene {scene.id} at position {scene.position} in story {scene.story_id}")
 
@@ -160,6 +162,7 @@ def scene_get(scene_id: int) -> None:
         typer.echo(f"heading: {scene.heading}")
         typer.echo(f"description: {scene.description}")
         typer.echo(f"required_actions: {scene.required_actions}")
+        typer.echo(f"length: {scene.length}")
 
 
 @scene_app.command("update")
@@ -169,6 +172,7 @@ def scene_update(
     heading: str | None = None,
     description: str | None = None,
     required_actions: str | None = None,
+    length: str | None = None,
 ) -> None:
     with session_scope() as session:
         scene = update_scene(
@@ -178,6 +182,7 @@ def scene_update(
             heading=heading,
             description=description,
             required_actions=required_actions,
+            length=length,
         )
         if scene is None:
             typer.echo(f"Scene {scene_id} not found")

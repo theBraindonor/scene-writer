@@ -56,12 +56,26 @@ def test_update_scene(session, story_id):
 def test_update_scene_position_heading_and_required_actions(session, story_id):
     scene = create_scene(session, story_id=story_id, position=0, description="Original")
 
-    updated = update_scene(session, scene.id, position=1, heading="New Heading", required_actions="Run away")
+    updated = update_scene(
+        session,
+        scene.id,
+        position=1,
+        heading="New Heading",
+        required_actions="Run away",
+        length="about 800 characters",
+    )
 
     assert updated.position == 1
     assert updated.heading == "New Heading"
     assert updated.required_actions == "Run away"
+    assert updated.length == "about 800 characters"
     assert updated.description == "Original"
+
+
+def test_create_scene_with_length(session, story_id):
+    scene = create_scene(session, story_id=story_id, position=0, description="Original", length="short")
+
+    assert scene.length == "short"
 
 
 def test_update_missing_scene_returns_none(session):

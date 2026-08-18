@@ -122,6 +122,29 @@ def test_update_scene():
     assert "description: The hero departs." in result.stdout
 
 
+def test_create_and_get_scene_with_length():
+    runner.invoke(app, ["story", "create", "My Story", "A scenario"])
+
+    result = runner.invoke(
+        app, ["scene", "create", "1", "0", "The hero arrives.", "--length", "about 800 characters"]
+    )
+    assert result.exit_code == 0
+
+    result = runner.invoke(app, ["scene", "get", "1"])
+    assert "length: about 800 characters" in result.stdout
+
+
+def test_update_scene_length():
+    runner.invoke(app, ["story", "create", "My Story", "A scenario"])
+    runner.invoke(app, ["scene", "create", "1", "0", "The hero arrives."])
+
+    result = runner.invoke(app, ["scene", "update", "1", "--length", "short"])
+
+    assert result.exit_code == 0
+    result = runner.invoke(app, ["scene", "get", "1"])
+    assert "length: short" in result.stdout
+
+
 def test_update_missing_scene():
     result = runner.invoke(app, ["scene", "update", "999", "--description", "New"])
 

@@ -18,3 +18,4 @@ class Scene(Base):
     heading: Mapped[str | None] = mapped_column(String, nullable=True)
     description: Mapped[str] = mapped_column(String, nullable=False)
     required_actions: Mapped[str | None] = mapped_column(String, nullable=True)
+    length: Mapped[str | None] = mapped_column(String, nullable=True)

@@ -32,6 +32,16 @@ def test_create_scene(session_factory, story_id):
         session.commit()
 
         assert scene.id is not None
+        assert scene.length is None
+
+
+def test_create_scene_with_length(session_factory, story_id):
+    with session_factory() as session:
+        scene = Scene(story_id=story_id, position=0, description="A description", length="about 800 characters")
+        session.add(scene)
+        session.commit()
+
+        assert scene.length == "about 800 characters"
 
 
 def test_position_must_be_non_negative(session_factory, story_id):

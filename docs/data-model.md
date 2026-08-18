@@ -49,6 +49,7 @@ erDiagram
         text heading
         text description
         text required_actions
+        text length
     }
 
     CHARACTER {
@@ -137,10 +138,12 @@ scene without becoming part of its prose rendering.
 | `heading` | `TEXT` | No | Optional scene heading text. |
 | `description` | `TEXT` | Yes | Free-form description of the scene. |
 | `required_actions` | `TEXT` | No | Actions or events that the scene generator must include when present. |
+| `length` | `TEXT` | No | Optional guidance on the expected prose length for the scene (e.g. a target character count or a qualitative size such as "short"). |
 
 Each scene position must be non-negative and unique within its story. `description` must be
 non-empty after trimming whitespace. When `required_actions` is present, it is presented to
-the LLM scene generator as actions that must occur in the scene.
+the LLM scene generator as actions that must occur in the scene. When `length` is present, it
+is presented to the LLM scene generator as guidance for how long the rendered prose should be.
 
 ```sql
 CREATE TABLE scene (
@@ -150,6 +153,7 @@ CREATE TABLE scene (
     heading TEXT,
     description TEXT NOT NULL CHECK (length(trim(description)) > 0),
     required_actions TEXT,
+    length TEXT,
     UNIQUE (story_id, position)
 );
 
