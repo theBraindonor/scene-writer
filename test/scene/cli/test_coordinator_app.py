@@ -13,6 +13,9 @@ from scene.cli.coordinator_app import (
     CoordinatorApp,
     UserMessage,
 )
+from scene.core.character import list_characters
+from scene.core.scene import list_scenes
+from scene.data.database import session_scope
 
 
 @pytest.fixture(autouse=True)
@@ -236,6 +239,69 @@ async def test_story_pane_shows_new_scene_after_tool_call(monkeypatch):
         assert "Opening scene" in pane_text
         assert "Introduce the protagonist" in pane_text
         assert "Short" in pane_text
+
+
+async def test_story_pane_shows_character_in_cast_and_assigned_scene(monkeypatch):
+    story_tool_call = FakeToolCallDelta(index=0, id="call_1", function=FakeFunctionDelta(name="create_story"))
+    story_args = FakeToolCallDelta(
+        index=0, function=FakeFunctionDelta(arguments='{"title": "New Story", "scenario": "A scenario"}')
+    )
+    scene_tool_call = FakeToolCallDelta(index=0, id="call_2", function=FakeFunctionDelta(name="create_scene"))
+    scene_args = FakeToolCallDelta(
+        index=0,
+        function=FakeFunctionDelta(arguments='{"position": 0, "description": "Opening scene", "heading": "Arrival"}'),
+    )
+    character_tool_call = FakeToolCallDelta(index=0, id="call_3", function=FakeFunctionDelta(name="create_character"))
+    character_args = FakeToolCallDelta(
+        index=0,
+        function=FakeFunctionDelta(
+            arguments='{"name": "Alex", "description": "A wanderer", "motive": "Find home"}'
+        ),
+    )
+    assign_tool_call = FakeToolCallDelta(index=0, id="call_4", function=FakeFunctionDelta(name="assign_character"))
+
+    script_stream(
+        monkeypatch,
+        [
+            [make_chunk(tool_calls=[story_tool_call]), make_chunk(tool_calls=[story_args])],
+            [make_chunk(content="Created the story!")],
+            [make_chunk(tool_calls=[scene_tool_call]), make_chunk(tool_calls=[scene_args])],
+            [make_chunk(content="Added the scene!")],
+            [make_chunk(tool_calls=[character_tool_call]), make_chunk(tool_calls=[character_args])],
+            [make_chunk(content="Added the character!")],
+        ],
+    )
+
+    app = CoordinatorApp(make_config())
+    async with app.run_test() as pilot:
+        await send(pilot, "please create a story")
+        await send(pilot, "please add an opening scene")
+        await send(pilot, "please add a character named Alex")
+
+        story_id = app.state.current_story_id
+        with session_scope() as session:
+            scene_id = list_scenes(session, story_id)[0].id
+            character_id = list_characters(session, story_id)[0].id
+
+        assign_args = FakeToolCallDelta(
+            index=0,
+            function=FakeFunctionDelta(arguments=f'{{"scene_id": {scene_id}, "character_id": {character_id}}}'),
+        )
+        script_stream(
+            monkeypatch,
+            [
+                [make_chunk(tool_calls=[assign_tool_call]), make_chunk(tool_calls=[assign_args])],
+                [make_chunk(content="Assigned!")],
+            ],
+        )
+        await send(pilot, "please assign Alex to the opening scene")
+
+        pane_text = str(app.query_one("#story-pane", Static).content)
+        assert "Cast of characters:" in pane_text
+        assert "Alex" in pane_text
+        assert "Description: A wanderer" in pane_text
+        assert "Motive: Find home" in pane_text
+        assert "Characters: Alex" in pane_text
 
 
 async def test_story_pane_shows_placeholder_until_a_story_exists():
