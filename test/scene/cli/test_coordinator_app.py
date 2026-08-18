@@ -201,6 +201,43 @@ async def test_story_pane_updates_after_tool_call(monkeypatch):
         assert "A scenario" in pane_text
 
 
+async def test_story_pane_shows_new_scene_after_tool_call(monkeypatch):
+    story_tool_call = FakeToolCallDelta(index=0, id="call_1", function=FakeFunctionDelta(name="create_story"))
+    story_args = FakeToolCallDelta(
+        index=0, function=FakeFunctionDelta(arguments='{"title": "New Story", "scenario": "A scenario"}')
+    )
+    scene_tool_call = FakeToolCallDelta(index=0, id="call_2", function=FakeFunctionDelta(name="create_scene"))
+    scene_args = FakeToolCallDelta(
+        index=0,
+        function=FakeFunctionDelta(
+            arguments=(
+                '{"position": 0, "description": "Opening scene", "heading": "Arrival", '
+                '"required_actions": "Introduce the protagonist", "length": "Short"}'
+            )
+        ),
+    )
+    script_stream(
+        monkeypatch,
+        [
+            [make_chunk(tool_calls=[story_tool_call]), make_chunk(tool_calls=[story_args])],
+            [make_chunk(content="Created the story!")],
+            [make_chunk(tool_calls=[scene_tool_call]), make_chunk(tool_calls=[scene_args])],
+            [make_chunk(content="Added the scene!")],
+        ],
+    )
+
+    app = CoordinatorApp(make_config())
+    async with app.run_test() as pilot:
+        await send(pilot, "please create a story")
+        await send(pilot, "please add an opening scene")
+
+        pane_text = str(app.query_one("#story-pane", Static).content)
+        assert "Arrival" in pane_text
+        assert "Opening scene" in pane_text
+        assert "Introduce the protagonist" in pane_text
+        assert "Short" in pane_text
+
+
 async def test_story_pane_shows_placeholder_until_a_story_exists():
     app = CoordinatorApp(make_config())
     async with app.run_test():

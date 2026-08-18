@@ -15,7 +15,9 @@ from scene.agent.coordinator.loop import (
     run_turn,
 )
 from scene.agent.coordinator.state import CoordinatorState
+from scene.agent.coordinator.tools.scene import build_scene_tools
 from scene.agent.coordinator.tools.story import build_story_tools
+from scene.core.scene import list_scenes
 from scene.core.story import get_story
 from scene.data.database import session_scope
 
@@ -203,7 +205,7 @@ class CoordinatorApp(App[None]):
         super().__init__()
         self.config = config
         self.state = CoordinatorState()
-        self.tools = build_story_tools(self.state)
+        self.tools = [*build_story_tools(self.state), *build_scene_tools(self.state)]
         self._active_block: AgentTurnBlock | None = None
 
     def compose(self) -> ComposeResult:
@@ -289,7 +291,18 @@ class CoordinatorApp(App[None]):
                 f"Style guidance:\n{story.style_guidance or '(none)'}",
                 "",
                 f"Archived: {bool(story.is_archived)}",
+                "",
+                "Scenes:",
             ]
+            scenes = list_scenes(session, story_id)
+            if scenes:
+                for scene in scenes:
+                    lines.append(f"  {scene.position}. {scene.heading or '(untitled)'}")
+                    lines.append(f"     Description: {scene.description}")
+                    lines.append(f"     Required actions: {scene.required_actions or '(none)'}")
+                    lines.append(f"     Length: {scene.length or '(unspecified)'}")
+            else:
+                lines.append("  (none yet)")
             return "\n".join(lines)
 
     def _refresh_story_pane(self) -> None:
