@@ -1,5 +1,12 @@
 import typer
 
+from scene.core.character import (
+    create_character,
+    delete_character,
+    get_character,
+    list_characters,
+    update_character,
+)
 from scene.core.rendering import (
     create_rendering,
     delete_rendering,
@@ -8,6 +15,12 @@ from scene.core.rendering import (
     set_active_rendering,
 )
 from scene.core.scene import create_scene, delete_scene, get_scene, list_scenes, update_scene
+from scene.core.scene_character import (
+    assign_character,
+    list_characters_for_scene,
+    list_scenes_for_character,
+    unassign_character,
+)
 from scene.core.story import (
     archive_story,
     create_story,
@@ -25,6 +38,10 @@ scene_app = typer.Typer(help="Manage scenes.")
 app.add_typer(scene_app, name="scene")
 rendering_app = typer.Typer(help="Manage renderings.")
 app.add_typer(rendering_app, name="rendering")
+character_app = typer.Typer(help="Manage characters.")
+app.add_typer(character_app, name="character")
+scene_character_app = typer.Typer(help="Manage scene cast assignments.")
+app.add_typer(scene_character_app, name="scene-character")
 
 
 @story_app.command("create")
@@ -213,3 +230,99 @@ def rendering_delete(rendering_id: int) -> None:
             typer.echo(f"Rendering {rendering_id} not found")
             raise typer.Exit(code=1)
         typer.echo(f"Deleted rendering {rendering_id}")
+
+
+@character_app.command("create")
+def character_create(
+    story_id: int,
+    name: str,
+    description: str | None = None,
+    motive: str | None = None,
+) -> None:
+    with session_scope() as session:
+        character = create_character(session, story_id=story_id, name=name, description=description, motive=motive)
+        typer.echo(f"Created character {character.id}: {character.name}")
+
+
+@character_app.command("list")
+def character_list(story_id: int) -> None:
+    with session_scope() as session:
+        characters = list_characters(session, story_id)
+        for character in characters:
+            typer.echo(f"{character.id}\t{character.name}")
+
+
+@character_app.command("get")
+def character_get(character_id: int) -> None:
+    with session_scope() as session:
+        character = get_character(session, character_id)
+        if character is None:
+            typer.echo(f"Character {character_id} not found")
+            raise typer.Exit(code=1)
+        typer.echo(f"id: {character.id}")
+        typer.echo(f"story_id: {character.story_id}")
+        typer.echo(f"name: {character.name}")
+        typer.echo(f"description: {character.description}")
+        typer.echo(f"motive: {character.motive}")
+
+
+@character_app.command("update")
+def character_update(
+    character_id: int,
+    name: str | None = None,
+    description: str | None = None,
+    motive: str | None = None,
+) -> None:
+    with session_scope() as session:
+        character = update_character(session, character_id, name=name, description=description, motive=motive)
+        if character is None:
+            typer.echo(f"Character {character_id} not found")
+            raise typer.Exit(code=1)
+        typer.echo(f"Updated character {character.id}")
+
+
+@character_app.command("delete")
+def character_delete(character_id: int) -> None:
+    with session_scope() as session:
+        deleted = delete_character(session, character_id)
+        if not deleted:
+            typer.echo(f"Character {character_id} not found")
+            raise typer.Exit(code=1)
+        typer.echo(f"Deleted character {character_id}")
+
+
+@scene_character_app.command("assign")
+def scene_character_assign(scene_id: int, character_id: int) -> None:
+    with session_scope() as session:
+        try:
+            assign_character(session, scene_id=scene_id, character_id=character_id)
+        except ValueError as error:
+            typer.echo(str(error))
+            raise typer.Exit(code=1) from error
+        typer.echo(f"Assigned character {character_id} to scene {scene_id}")
+
+
+@scene_character_app.command("unassign")
+def scene_character_unassign(scene_id: int, character_id: int) -> None:
+    with session_scope() as session:
+        unassigned = unassign_character(session, scene_id=scene_id, character_id=character_id)
+        if not unassigned:
+            typer.echo(f"Character {character_id} is not assigned to scene {scene_id}")
+            raise typer.Exit(code=1)
+        typer.echo(f"Unassigned character {character_id} from scene {scene_id}")
+
+
+@scene_character_app.command("list-for-scene")
+def scene_character_list_for_scene(scene_id: int) -> None:
+    with session_scope() as session:
+        characters = list_characters_for_scene(session, scene_id)
+        for character in characters:
+            typer.echo(f"{character.id}\t{character.name}")
+
+
+@scene_character_app.command("list-for-character")
+def scene_character_list_for_character(character_id: int) -> None:
+    with session_scope() as session:
+        scenes = list_scenes_for_character(session, character_id)
+        for scene in scenes:
+            typer.echo(f"{scene.id}\t{scene.position}\t{scene.heading or ''}")

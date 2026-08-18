@@ -216,3 +216,122 @@ def test_delete_missing_rendering():
 
     assert result.exit_code == 1
     assert "not found" in result.stdout
+
+
+def test_create_and_list_character():
+    runner.invoke(app, ["story", "create", "My Story", "A scenario"])
+
+    result = runner.invoke(app, ["character", "create", "1", "Ada", "--motive", "Escape"])
+    assert result.exit_code == 0
+    assert "Created character 1" in result.stdout
+
+    result = runner.invoke(app, ["character", "list", "1"])
+    assert result.exit_code == 0
+    assert "Ada" in result.stdout
+
+
+def test_get_character():
+    runner.invoke(app, ["story", "create", "My Story", "A scenario"])
+    runner.invoke(app, ["character", "create", "1", "Ada"])
+
+    result = runner.invoke(app, ["character", "get", "1"])
+
+    assert result.exit_code == 0
+    assert "name: Ada" in result.stdout
+
+
+def test_get_missing_character():
+    result = runner.invoke(app, ["character", "get", "999"])
+
+    assert result.exit_code == 1
+    assert "not found" in result.stdout
+
+
+def test_update_character():
+    runner.invoke(app, ["story", "create", "My Story", "A scenario"])
+    runner.invoke(app, ["character", "create", "1", "Ada"])
+
+    result = runner.invoke(app, ["character", "update", "1", "--motive", "Escape"])
+
+    assert result.exit_code == 0
+    result = runner.invoke(app, ["character", "get", "1"])
+    assert "motive: Escape" in result.stdout
+
+
+def test_update_missing_character():
+    result = runner.invoke(app, ["character", "update", "999", "--name", "New"])
+
+    assert result.exit_code == 1
+    assert "not found" in result.stdout
+
+
+def test_delete_character():
+    runner.invoke(app, ["story", "create", "My Story", "A scenario"])
+    runner.invoke(app, ["character", "create", "1", "Ada"])
+
+    result = runner.invoke(app, ["character", "delete", "1"])
+    assert result.exit_code == 0
+
+    result = runner.invoke(app, ["character", "get", "1"])
+    assert result.exit_code == 1
+
+
+def test_delete_missing_character():
+    result = runner.invoke(app, ["character", "delete", "999"])
+
+    assert result.exit_code == 1
+    assert "not found" in result.stdout
+
+
+def test_assign_and_list_characters_for_scene():
+    runner.invoke(app, ["story", "create", "My Story", "A scenario"])
+    runner.invoke(app, ["scene", "create", "1", "0", "The hero arrives."])
+    runner.invoke(app, ["character", "create", "1", "Ada"])
+
+    result = runner.invoke(app, ["scene-character", "assign", "1", "1"])
+    assert result.exit_code == 0
+    assert "Assigned character 1 to scene 1" in result.stdout
+
+    result = runner.invoke(app, ["scene-character", "list-for-scene", "1"])
+    assert result.exit_code == 0
+    assert "Ada" in result.stdout
+
+    result = runner.invoke(app, ["scene-character", "list-for-character", "1"])
+    assert result.exit_code == 0
+    assert result.stdout.startswith("1\t0")
+
+
+def test_assign_cross_story_character():
+    runner.invoke(app, ["story", "create", "Story One", "A scenario"])
+    runner.invoke(app, ["scene", "create", "1", "0", "The hero arrives."])
+    runner.invoke(app, ["story", "create", "Story Two", "Another scenario"])
+    runner.invoke(app, ["character", "create", "2", "Bea"])
+
+    result = runner.invoke(app, ["scene-character", "assign", "1", "1"])
+
+    assert result.exit_code == 1
+    assert "different stories" in result.stdout
+
+
+def test_unassign_character():
+    runner.invoke(app, ["story", "create", "My Story", "A scenario"])
+    runner.invoke(app, ["scene", "create", "1", "0", "The hero arrives."])
+    runner.invoke(app, ["character", "create", "1", "Ada"])
+    runner.invoke(app, ["scene-character", "assign", "1", "1"])
+
+    result = runner.invoke(app, ["scene-character", "unassign", "1", "1"])
+    assert result.exit_code == 0
+
+    result = runner.invoke(app, ["scene-character", "list-for-scene", "1"])
+    assert "Ada" not in result.stdout
+
+
+def test_unassign_missing_character():
+    runner.invoke(app, ["story", "create", "My Story", "A scenario"])
+    runner.invoke(app, ["scene", "create", "1", "0", "The hero arrives."])
+    runner.invoke(app, ["character", "create", "1", "Ada"])
+
+    result = runner.invoke(app, ["scene-character", "unassign", "1", "1"])
+
+    assert result.exit_code == 1
+    assert "not assigned" in result.stdout
