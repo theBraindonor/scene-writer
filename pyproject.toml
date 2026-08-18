@@ -16,11 +16,18 @@ dev = [
     "crypts-and-commits @ git+https://github.com/theBraindonor/crypts-and-commits.git#subdirectory=packages/crypts-and-commits",
     "pytest",
     "pytest-cov",
+    "ruff",
 ]
 [tool.pdm]
 distribution = false
+
+[tool.pdm.scripts]
+lint = "ruff check ."
 
 [tool.pytest.ini_options]
 testpaths = ["test"]
 pythonpath = ["src"]
 addopts = "--import-mode=importlib --cov=src/scene --cov-report=html --cov-report=term"
+
+[tool.ruff]
+line-length = 120
