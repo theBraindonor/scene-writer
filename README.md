@@ -17,6 +17,13 @@ Scene definitions and generated output are persisted to a local SQLite database.
 
 The SQLite database file lives under a top-level `data/` folder (gitignored; the folder itself is tracked via a placeholder).
 
+## Data model
+
+A story owns a cast of characters, a set of locations, and an ordered sequence of scenes; each
+scene may have one or more renderings (generated or edited prose) and can have any number of
+characters and locations assigned to it. See [`docs/data-model.md`](docs/data-model.md) for the
+full schema, including columns, constraints, and indexes.
+
 ## Development
 
 Requires Python 3.13 and [PDM](https://pdm-project.org/).
@@ -37,8 +44,8 @@ Run linting:
 pdm run lint
 ```
 
-Manage stories via the `scene-data` CLI:
+Manage persisted data via the `scene-data` CLI:
 
 ```
-pdm run scene-data story --help
+pdm run scene-data --help
 ```
