@@ -1,19 +1,28 @@
+from typing import ClassVar
+
 from textual import work
 from textual.app import App, ComposeResult
+from textual.binding import Binding, BindingType
 from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.screen import Screen
 from textual.widgets import Button, Label, ListItem, ListView, Markdown, Static
+from textual.worker import Worker, WorkerState, get_current_worker
 
 from scene.agent.config import LLMConfig
 from scene.agent.rendering import (
-    RenderComplete,
     RenderContentDelta,
     RenderReasoningDelta,
     build_render_messages,
     find_next_unrendered_scene,
     stream_render,
 )
-from scene.core.rendering import create_rendering, list_renderings, set_active_rendering
+from scene.core.rendering import (
+    create_rendering,
+    delete_rendering,
+    get_rendering,
+    list_renderings,
+    set_active_rendering,
+)
 from scene.core.scene import list_scenes
 from scene.core.scene_character import list_characters_for_scene
 from scene.core.scene_location import list_locations_for_scene
@@ -23,6 +32,12 @@ from scene.data.database import session_scope
 NO_STORIES_TEXT = "No stories yet.\n\nCreate one with the coordinator chat."
 NO_SCENES_TEXT = "This story has no scenes yet.\n\nAdd scenes with the coordinator chat."
 ALL_RENDERED_TEXT = "All scenes are already rendered."
+NO_RENDERINGS_TEXT = "This scene has no renderings yet."
+DELETE_SOLE_RENDERING_TEXT = "Cannot delete a scene's only rendering."
+DELETE_ACTIVE_RENDERING_TEXT = "Cannot delete the active rendering. Activate a different version first."
+CANCEL_CONFIRM_TEXT = "Cancel generation? Y to confirm, N to keep writing."
+CANCELLED_SAVED_TEXT = "Generation cancelled. Partial rendering saved."
+CANCELLED_EMPTY_TEXT = "Generation cancelled. Nothing had been generated yet."
 
 
 def _has_active_rendering(session, scene_id: int) -> bool:
@@ -71,6 +86,15 @@ class SceneListItem(ListItem):
     def __init__(self, scene_id: int, label: str) -> None:
         super().__init__(Label(label))
         self.scene_id = scene_id
+
+
+class VersionListItem(ListItem):
+    def __init__(self, rendering_id: int, index: int, is_active: bool) -> None:
+        marker = "●" if is_active else "○"
+        suffix = " (active)" if is_active else ""
+        super().__init__(Label(f"{marker} v{index}{suffix}"), id=f"version-{rendering_id}")
+        self.rendering_id = rendering_id
+        self.is_active = is_active
 
 
 class StoryPickerScreen(Screen[None]):
@@ -122,25 +146,87 @@ class RenderScreen(Screen[None]):
         border-top: solid $panel;
         padding: 1;
     }
+
+    #version-list {
+        height: 6;
+        border-top: solid $panel;
+    }
+
+    #version-text {
+        height: auto;
+        border-top: solid $panel;
+        padding: 1;
+    }
+
+    #version-notice {
+        height: auto;
+        padding: 0 1;
+    }
     """
+
+    BINDINGS: ClassVar[list[BindingType]] = [
+        Binding("escape", "cancel_generation", "Cancel generation", show=False),
+        Binding("y", "confirm_cancel", "Confirm cancel", show=False),
+        Binding("n", "dismiss_cancel", "Keep writing", show=False),
+    ]
 
     def __init__(self, story_id: int) -> None:
         super().__init__()
         self.story_id = story_id
         self.selected_scene_id: int | None = None
+        self.selected_rendering_id: int | None = None
         self._output_text = ""
+        self._active_worker: Worker | None = None
+        self._confirming_cancel = False
 
     def compose(self) -> ComposeResult:
         with Horizontal():
             with Vertical(id="scene-column"):
                 yield ListView(id="scene-list")
                 yield Static("", id="scene-detail")
-                yield Button("Render next scene", id="render-next")
+                with Horizontal(id="scene-actions"):
+                    yield Button("Render next scene", id="render-next")
+                    yield Button("Regenerate this scene", id="regenerate")
             with Vertical(id="output-column"):
+                yield Static("", id="cancel-notice")
                 yield VerticalScroll(id="output-scroll")
+                yield Static("Versions:", id="version-label")
+                yield ListView(id="version-list")
+                yield Static("", id="version-text")
+                with Horizontal(id="version-actions"):
+                    yield Button("Activate version", id="activate-version")
+                    yield Button("Delete version", id="delete-version")
+                yield Static("", id="version-notice")
 
     async def on_mount(self) -> None:
         await self._refresh_scenes()
+        await self._refresh_versions()
+
+    def action_cancel_generation(self) -> None:
+        if self._active_worker is None or self._confirming_cancel:
+            return
+        self._confirming_cancel = True
+        self.query_one("#cancel-notice", Static).update(CANCEL_CONFIRM_TEXT)
+
+    def action_confirm_cancel(self) -> None:
+        if not self._confirming_cancel:
+            return
+        self._confirming_cancel = False
+        if self._active_worker is not None:
+            self._active_worker.cancel()
+
+    def action_dismiss_cancel(self) -> None:
+        if not self._confirming_cancel:
+            return
+        self._confirming_cancel = False
+        self.query_one("#cancel-notice", Static).update("")
+
+    def on_worker_state_changed(self, event: Worker.StateChanged) -> None:
+        if event.worker is not self._active_worker:
+            return
+        if event.state in (WorkerState.SUCCESS, WorkerState.ERROR, WorkerState.CANCELLED):
+            self._active_worker = None
+            self._confirming_cancel = False
 
     async def _refresh_scenes(self) -> None:
         list_view = self.query_one("#scene-list", ListView)
@@ -159,25 +245,82 @@ class RenderScreen(Screen[None]):
                 return
         self.query_one("#scene-detail", Static).update(NO_SCENES_TEXT)
 
+    async def _refresh_versions(self) -> None:
+        version_list = self.query_one("#version-list", ListView)
+        await version_list.clear()
+        self.selected_rendering_id = None
+        self.query_one("#version-text", Static).update("")
+        self.query_one("#version-notice", Static).update("")
+        if self.selected_scene_id is None:
+            return
+        with session_scope() as session:
+            renderings = list_renderings(session, self.selected_scene_id)
+        if not renderings:
+            self.query_one("#version-text", Static).update(NO_RENDERINGS_TEXT)
+            return
+        for index, rendering in enumerate(renderings, start=1):
+            version_list.append(VersionListItem(rendering.id, index, bool(rendering.is_active)))
+
     def on_list_view_highlighted(self, event: ListView.Highlighted) -> None:
         item = event.item
-        if not isinstance(item, SceneListItem):
-            return
-        self.selected_scene_id = item.scene_id
-        with session_scope() as session:
-            scene = next((scene for scene in list_scenes(session, self.story_id) if scene.id == item.scene_id), None)
-            if scene is not None:
-                self.query_one("#scene-detail", Static).update(_scene_detail_text(session, scene))
+        if isinstance(item, SceneListItem):
+            self.selected_scene_id = item.scene_id
+            with session_scope() as session:
+                scene = next(
+                    (scene for scene in list_scenes(session, self.story_id) if scene.id == item.scene_id), None
+                )
+                if scene is not None:
+                    self.query_one("#scene-detail", Static).update(_scene_detail_text(session, scene))
+            self.run_worker(self._refresh_versions())
+        elif isinstance(item, VersionListItem):
+            self.selected_rendering_id = item.rendering_id
+            with session_scope() as session:
+                rendering = get_rendering(session, item.rendering_id)
+            if rendering is not None:
+                self.query_one("#version-text", Static).update(rendering.body)
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
-        if event.button.id != "render-next":
+        button_id = event.button.id
+        if button_id == "render-next":
+            with session_scope() as session:
+                scene = find_next_unrendered_scene(session, self.story_id)
+            if scene is None:
+                self._show_static_output(ALL_RENDERED_TEXT)
+                return
+            self._active_worker = self._render_scene(scene.id)
+        elif button_id == "regenerate":
+            if self.selected_scene_id is not None:
+                self._active_worker = self._render_scene(self.selected_scene_id)
+        elif button_id == "activate-version":
+            self.run_worker(self._activate_selected_version())
+        elif button_id == "delete-version":
+            self.run_worker(self._delete_selected_version())
+
+    async def _activate_selected_version(self) -> None:
+        if self.selected_rendering_id is None:
             return
         with session_scope() as session:
-            scene = find_next_unrendered_scene(session, self.story_id)
-        if scene is None:
-            self._show_static_output(ALL_RENDERED_TEXT)
+            set_active_rendering(session, self.selected_rendering_id)
+        await self._refresh_versions()
+        await self._refresh_scenes()
+
+    async def _delete_selected_version(self) -> None:
+        if self.selected_scene_id is None or self.selected_rendering_id is None:
             return
-        self._render_scene(scene.id)
+        with session_scope() as session:
+            renderings = list_renderings(session, self.selected_scene_id)
+            target = next((rendering for rendering in renderings if rendering.id == self.selected_rendering_id), None)
+            if target is None:
+                return
+            if len(renderings) == 1:
+                self.query_one("#version-notice", Static).update(DELETE_SOLE_RENDERING_TEXT)
+                return
+            if target.is_active:
+                self.query_one("#version-notice", Static).update(DELETE_ACTIVE_RENDERING_TEXT)
+                return
+            delete_rendering(session, target.id)
+        await self._refresh_versions()
+        await self._refresh_scenes()
 
     def _show_static_output(self, text: str) -> None:
         scroll = self.query_one("#output-scroll", VerticalScroll)
@@ -186,6 +329,7 @@ class RenderScreen(Screen[None]):
 
     def _start_output(self) -> None:
         self._output_text = ""
+        self.query_one("#cancel-notice", Static).update("")
         scroll = self.query_one("#output-scroll", VerticalScroll)
         scroll.remove_children()
         scroll.mount(Markdown("", id="output-text"))
@@ -195,25 +339,45 @@ class RenderScreen(Screen[None]):
         self.query_one("#output-text", Markdown).update(self._output_text)
         self.query_one("#output-scroll", VerticalScroll).scroll_end(animate=False)
 
+    def _show_cancelled_notice(self, saved: bool) -> None:
+        self.query_one("#cancel-notice", Static).update(CANCELLED_SAVED_TEXT if saved else CANCELLED_EMPTY_TEXT)
+
     @work(thread=True)
     def _render_scene(self, scene_id: int) -> None:
+        worker = get_current_worker()
         with session_scope() as session:
             messages = build_render_messages(session, self.story_id, scene_id)
 
         self.app.call_from_thread(self._start_output)
 
-        assembled = ""
-        for event in stream_render(self.app.config, messages):
-            if isinstance(event, (RenderReasoningDelta, RenderContentDelta)):
+        content_parts: list[str] = []
+        cancelled = False
+        stream = stream_render(self.app.config, messages)
+        while True:
+            if worker.is_cancelled:
+                cancelled = True
+                break
+            try:
+                event = next(stream)
+            except StopIteration:
+                break
+            if isinstance(event, RenderContentDelta):
+                content_parts.append(event.text)
                 self.app.call_from_thread(self._append_output, event.text)
-            elif isinstance(event, RenderComplete):
-                assembled = event.text
+            elif isinstance(event, RenderReasoningDelta):
+                self.app.call_from_thread(self._append_output, event.text)
 
-        with session_scope() as session:
-            rendering = create_rendering(session, scene_id=scene_id, body=assembled)
-            set_active_rendering(session, rendering.id)
+        assembled = "".join(content_parts)
+
+        if assembled:
+            with session_scope() as session:
+                rendering = create_rendering(session, scene_id=scene_id, body=assembled)
+                set_active_rendering(session, rendering.id)
 
         self.app.call_from_thread(self._refresh_scenes)
+        self.app.call_from_thread(self._refresh_versions)
+        if cancelled:
+            self.app.call_from_thread(self._show_cancelled_notice, bool(assembled))
 
 
 class RenderApp(App[None]):

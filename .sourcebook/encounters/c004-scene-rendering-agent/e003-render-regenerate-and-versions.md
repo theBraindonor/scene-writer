@@ -9,9 +9,9 @@ kind: scripted
 name: e003-render-regenerate-and-versions
 regions:
 - cli
-status: draft
+status: completed
 updated_by: John Hoff
-updated_on: '2026-08-19T00:52:50Z'
+updated_on: '2026-08-19T05:37:20Z'
 ---
 
 # E003 — Render Regenerate and Versions
@@ -43,3 +43,15 @@ wiring the existing service layer into the TUI.
 - Manually run `pdm run scene-coordinator render`, regenerate an already-rendered scene, confirm both versions appear in the version list, activate the older one, confirm the scene list's status reflects it, and confirm deleting the sole/active version is refused with a clear message.
 
 ## Log
+
+### Review - 2026-08-19T04:06:20Z - John Hoff
+
+Reviewed against the two applicable lore items (linting, unit-testing), both fully honored: the Plan/Verification explicitly gate completion on zero `ruff` errors and a green `pdm run pytest` run, and the Requirements commit to new tests in the correctly mirrored `test/scene/cli/test_render_app.py` path covering the regenerate flow, version activation, and both delete-guard cases. No lore conflicts found. Flagged-but-unverified: the encounter is region-scoped to `cli` only while its Plan depends on several `scene.core.rendering` functions and `e002`'s `RenderApp`/`build_render_messages`/`stream_render` existing as described — these live outside the cited reading surface and were not chased, so their soundness (as opposed to lore compliance) is unconfirmed by this review.
+
+### Message - 2026-08-19T04:24:39Z - John Hoff
+
+Deviation, approved by the user during implementation: added a way to cancel an in-progress generation. Pressing Escape while "Render next scene" or "Regenerate this scene" is streaming shows a Y/N confirmation; confirming (Y) stops pulling further content from the stream, persists and activates whatever prose was received so far as a new Rendering (best-effort partial save, skipped if nothing was received yet), and shows a "Generation cancelled" notice. This was not in the originally reviewed Requirements/Plan; the user asked for it after the initial review and explicitly chose to fold it into this encounter rather than draft a separate one.
+
+### Completed - 2026-08-19T05:37:20Z - John Hoff
+
+Delivered: regenerate action, rendering-version browser (view/activate/delete with guards), and an escape-to-cancel flow (Y/N confirm, best-effort partial save) added mid-encounter per user request. pdm run pytest (297 passed) and pdm run lint (clean) both green; verified interactively in the real TUI, including a live LLM regenerate/cancel run.
