@@ -3,9 +3,9 @@ archived: false
 created_by: John Hoff
 created_on: '2026-08-18T22:25:24Z'
 name: c004-scene-rendering-agent
-status: draft
+status: open
 updated_by: John Hoff
-updated_on: '2026-08-18T22:25:24Z'
+updated_on: '2026-08-19T03:04:08Z'
 ---
 
 # C004 — Scene Rendering Agent
