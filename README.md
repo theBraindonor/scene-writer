@@ -62,10 +62,30 @@ right-hand pane re-renders that story's full data (scenes, cast, locations, and 
 assignments) after every turn. `/quit` exits; `/clear` resets the conversation and current
 story.
 
-The coordinating agent's LLM connection is configured via two gitignored files, each with a
+Generate a story's prose via the `scene-coordinator render` CLI, a separate Textual TUI with a
+two-pane layout: a left-hand pane listing the story's scenes with their render status and the
+selected scene's full detail, and a right-hand pane showing rendering output:
+
+```
+pdm run scene-coordinator render
+```
+
+As with `chat`, there's no story id to pass — an in-TUI picker selects the story first. From the
+render view, "Render next scene" generates the earliest scene that has no active rendering yet,
+in order; "Regenerate this scene" generates a new version of whichever scene is selected, even
+if it's already been rendered, activating the new version while leaving prior ones intact. Every
+scene keeps its full rendering history: a version list lets you view, activate, or delete any of
+the selected scene's past renderings (a scene's only rendering, or its currently active one,
+can't be deleted). While a generation is streaming, pressing `Escape` asks for confirmation (Y/N)
+before cancelling it; confirming stops the generation and saves whatever prose had been produced
+so far.
+
+Each agent's LLM connection is configured via two gitignored files, each with a
 committed `.example` template: `models.yaml` defines named model profiles (a litellm-style
 model string, plus an optional `api_base` for a local OpenAI-compatible server such as LM
 Studio, and an optional `api_key_env` for a hosted provider such as OpenRouter), and `.env`
-selects which profile the coordinating agent uses via `SCENE_COORDINATING_AGENT`
-(`SCENE_RENDERING_AGENT` is reserved for a future rendering agent). Switching between a hosted
-provider and a local server is then just a one-line `.env` edit.
+selects which profile each agent uses — `SCENE_COORDINATING_AGENT` for `chat`,
+`SCENE_RENDERING_AGENT` for `render`. The two agents can be pointed at independently configured
+models (for example, a general-purpose model for coordination and a prose- or
+role-play-tuned model for rendering). Switching between a hosted provider and a local server is
+then just a one-line `.env` edit.

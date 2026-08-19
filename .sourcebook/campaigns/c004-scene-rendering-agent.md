@@ -3,9 +3,9 @@ archived: false
 created_by: John Hoff
 created_on: '2026-08-18T22:25:24Z'
 name: c004-scene-rendering-agent
-status: open
+status: completed
 updated_by: John Hoff
-updated_on: '2026-08-19T03:04:08Z'
+updated_on: '2026-08-19T16:18:31Z'
 ---
 
 # C004 — Scene Rendering Agent
@@ -89,3 +89,7 @@ tools).
   above.
 
 ## Log
+
+### Completed - 2026-08-19T16:18:31Z - John Hoff
+
+Delivered the full scene-rendering agent: a non-interactive, LLM-driven pipeline (e001) that reconstructs continuity context from scratch on every call using each prior scene's currently-active rendering, exposed through a new scene-coordinator render Textual TUI (e002) with render-next, regenerate-with-version-history (e003, plus an escape-to-cancel flow added mid-encounter at the user's request — Y/N confirm, best-effort partial save), and documented in the README (e004). Reused c003's reserved AgentRole.RENDERING/SCENE_RENDERING_AGENT seam, so the two agents now run on independently configured models. All work is covered by tests (pytest) and lint-clean. Next UI work in this space is expected to move to the planned scene.gui GUI rather than further TUI iteration, per the user's direction at close-out.

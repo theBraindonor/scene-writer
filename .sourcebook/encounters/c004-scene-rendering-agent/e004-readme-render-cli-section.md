@@ -9,9 +9,9 @@ kind: scripted
 name: e004-readme-render-cli-section
 regions:
 - cli
-status: draft
+status: completed
 updated_by: John Hoff
-updated_on: '2026-08-19T00:52:50Z'
+updated_on: '2026-08-19T16:18:17Z'
 ---
 
 # E004 — README Render CLI Section
@@ -38,3 +38,11 @@ configured agent role, without duplicating detail that belongs in code/config.
 - Run `pdm run lint` and confirm zero errors.
 
 ## Log
+
+### Review - 2026-08-19T14:03:57Z - John Hoff
+
+Plan is well-scoped and consistent with lore: linting is explicitly verified via `pdm run lint`, and the deliberate omission of unit tests is justified as a documentation-only change, mirroring the real precedent already visible in README.md from prior README-only encounters (`e009`'s `scene-coordinator chat` section, including the exact 'reserved for a future rendering agent' sentence this encounter plans to update). Minor observation: the encounter is assigned to the `cli` region while its actual edit target, README.md, sits outside that region's path — consistent with the apparent convention from `e009` but worth noting. No lore conflicts found; the accuracy of the described render-TUI behavior against the shipped e002/e003 implementation is left for the encounter's own manual Verification step, as it falls outside this review's bounded reading surface.
+
+### Completed - 2026-08-19T16:18:17Z - John Hoff
+
+README.md now documents scene-coordinator render (two-pane layout, in-TUI story picker, render-next/regenerate, version browsing, escape-to-cancel) and the SCENE_RENDERING_AGENT role selector alongside SCENE_COORDINATING_AGENT. pdm run lint clean; manually reviewed the rendered README for clarity and accuracy against the shipped CLI.
