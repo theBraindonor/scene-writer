@@ -9,9 +9,9 @@ kind: scripted
 name: e002-render-tui
 regions:
 - cli
-status: draft
+status: completed
 updated_by: John Hoff
-updated_on: '2026-08-19T00:52:48Z'
+updated_on: '2026-08-19T04:02:29Z'
 ---
 
 # E002 — Render TUI
@@ -46,3 +46,15 @@ this is an intentionally separate `App`/CLI command per the campaign body.
 - Manually run `pdm run scene-coordinator render`, pick a story with at least one scene, trigger "Render next scene," confirm the text streams into the output pane, and confirm via `scene-data` that an active rendering was persisted for the correct scene.
 
 ## Log
+
+### Review - 2026-08-19T03:25:11Z - John Hoff
+
+Reviewed e002-render-tui against the linting and unit-testing lore and against c004's design decisions: both lore items are explicitly honored (Plan step 5 and Verification require pdm run lint clean and pdm run pytest green, with the new test correctly placed at test/scene/cli/test_render_app.py mirroring src/scene/cli/render_app.py). The Plan's technical claims check out against the real code they cite: find_next_unrendered_scene, build_render_messages, stream_render, and the RenderReasoningDelta/RenderContentDelta/RenderComplete event shapes all match src/scene/agent/rendering.py as delivered in the completed e001, and the "same try/except error handling as chat" and "mirrors CoordinatorApp's @work(thread=True)/call_from_thread streaming pattern" claims both match the actual coordinator.py/coordinator_app.py code, with the new RenderApp correctly kept as a separate, non-importing App per the campaign's stated design. The no-CLI-story-id, in-TUI story-picker approach matches the campaign's design decision verbatim, and scoping this encounter to only "render next scene" (deferring regeneration and version browsing to e003) is an explicit, reasonable phasing of the campaign's broader two-pane/version-browsing design rather than a contradiction of it. scene.core.story.list_stories and scene.core.rendering.create_rendering/set_active_rendering were confirmed to exist with the assumed shapes, and test_coordinator_app.py's stream_complete-mocking convention is a real, reusable pattern. PASS-WITH-NOTES.
+
+### Message - 2026-08-19T03:57:38Z - John Hoff
+
+Deviation from the reviewed Plan, per developer feedback after the first manual pass at the render TUI: the output pane didn't auto-scroll as streamed text arrived, so long generations scrolled out of view. Added a scroll_end(animate=False) call on the output VerticalScroll in _append_output, mirroring CoordinatorApp's existing per-event auto-scroll pattern from e005a. Added test_output_pane_auto_scrolls_on_every_streamed_chunk to test/scene/cli/test_render_app.py (spying on VerticalScroll.scroll_end, mirroring test_coordinator_app.py's equivalent test). pdm run pytest (288/288, 100% coverage) and pdm run lint (zero errors) both pass after the change.
+
+### Completed - 2026-08-19T04:02:29Z - John Hoff
+
+Verified: pdm run pytest passes 288/288 with 100% coverage, pdm run lint zero errors. Delivered scene/cli/render_app.py: StoryPickerScreen (lists stories via scene.core.story.list_stories, click to select, no CLI-supplied story id) and RenderScreen (a two-pane view: scene list with rendered/unrendered indicators plus the selected scene's full detail on the left, streaming output pane on the right). "Render next scene" resolves find_next_unrendered_scene, builds context via build_render_messages, streams via stream_render in a background worker (mirroring CoordinatorApp's @work(thread=True)/call_from_thread pattern), and on RenderComplete persists via create_rendering + set_active_rendering, then refreshes the scene pane. The all-scenes-rendered case shows a clear notice with no generation call. Added the scene-coordinator render command to coordinator.py, resolving AgentRole.RENDERING with the same error handling as chat. Developer manually verified against the live LM Studio server, confirming streaming output and persistence. Per developer feedback during manual verification, the output pane was fixed to auto-scroll on every streamed chunk (mirroring CoordinatorApp's e005a auto-scroll pattern) — recorded as a deviation message and covered by a new regression test.
