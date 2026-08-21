@@ -31,11 +31,19 @@ def test_set_story_shows_content_and_loads_sections(qtbot):
     qtbot.addWidget(widget)
     widget.set_story(story_id)
 
-    assert widget.stack.currentWidget() is not widget.empty_label
+    assert widget.stack.currentWidget() is widget.tabs
     assert widget.story_detail.story_id == story_id
     assert widget.scenes.story_id == story_id
     assert widget.characters.story_id == story_id
     assert widget.locations.story_id == story_id
+
+
+def test_tabs_have_expected_labels_and_order(qtbot):
+    widget = EntityColumn()
+    qtbot.addWidget(widget)
+
+    labels = [widget.tabs.tabText(i) for i in range(widget.tabs.count())]
+    assert labels == ["Story", "Characters", "Locations", "Scenes"]
 
 
 def test_set_story_none_shows_empty_state_and_resets_scene(qtbot):

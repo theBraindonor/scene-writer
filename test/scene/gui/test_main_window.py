@@ -95,6 +95,10 @@ def make_window(qtbot):
     return window
 
 
+def select_story(window, story_id):
+    window.story_header.story_selected.emit(story_id)
+
+
 def test_window_shows_placeholder_panes(qtbot):
     window = make_window(qtbot)
 
@@ -109,23 +113,23 @@ def test_selecting_story_updates_current_story_id_and_emits_signal(qtbot):
     window = make_window(qtbot)
 
     with qtbot.waitSignal(window.current_story_changed, timeout=1000) as blocker:
-        window.sidebar.story_list.setCurrentRow(0)
+        select_story(window, story_id)
 
     assert blocker.args == [story_id]
     assert window.current_story_id == story_id
     assert window.entity_column.current_story_id == story_id
 
 
-def test_creating_story_via_sidebar_updates_window(qtbot, monkeypatch):
+def test_creating_story_via_header_updates_window(qtbot, monkeypatch):
     window = make_window(qtbot)
 
-    monkeypatch.setattr(window.sidebar, "_prompt_new_story", lambda: ("New Story", "A scenario", None))
+    monkeypatch.setattr(window.story_header, "_prompt_new_story", lambda: ("New Story", "A scenario", None))
 
     with qtbot.waitSignal(window.current_story_changed, timeout=1000) as blocker:
-        qtbot.mouseClick(window.sidebar.new_story_button, Qt.MouseButton.LeftButton)
+        qtbot.mouseClick(window.story_header.new_story_button, Qt.MouseButton.LeftButton)
 
     assert window.current_story_id == blocker.args[0]
-    assert window.sidebar.story_list.currentItem().text() == "New Story"
+    assert window.story_header.story_label.text() == "New Story"
 
 
 def test_selecting_scene_updates_rendering_column(qtbot):
@@ -136,7 +140,7 @@ def test_selecting_scene_updates_rendering_column(qtbot):
         set_active_rendering(session, rendering.id)
 
     window = make_window(qtbot)
-    window.sidebar.story_list.setCurrentRow(0)
+    select_story(window, story_id)
 
     with qtbot.waitSignal(window.entity_column.current_scene_changed, timeout=1000):
         window.entity_column.scenes.list_widget.setCurrentRow(0)
@@ -147,18 +151,18 @@ def test_selecting_scene_updates_rendering_column(qtbot):
 
 def test_switching_story_resets_rendering_column(qtbot):
     first_story_id = seed_story("First Story")
-    seed_story("Second Story")
+    second_story_id = seed_story("Second Story")
     with session_scope() as session:
         scene = create_scene(session, story_id=first_story_id, position=0, description="Opening")
         rendering = create_rendering(session, scene_id=scene.id, body="Once upon a time.")
         set_active_rendering(session, rendering.id)
 
     window = make_window(qtbot)
-    window.sidebar.story_list.setCurrentRow(0)
+    select_story(window, first_story_id)
     window.entity_column.scenes.list_widget.setCurrentRow(0)
     assert window.rendering_column.stack.currentWidget() is window.rendering_column.body_view
 
-    window.sidebar.story_list.setCurrentRow(1)
+    select_story(window, second_story_id)
 
     assert window.rendering_column.stack.currentWidget() is window.rendering_column.no_selection_label
 
@@ -167,12 +171,12 @@ def test_selecting_story_sets_coordinator_state(qtbot):
     story_id = seed_story("A Story")
     window = make_window(qtbot)
 
-    window.sidebar.story_list.setCurrentRow(0)
+    select_story(window, story_id)
 
     assert window.coordinator_state.current_story_id == story_id
 
 
-def test_chat_creating_story_updates_sidebar_and_entity_column(qtbot, monkeypatch):
+def test_chat_creating_story_updates_header_and_entity_column(qtbot, monkeypatch):
     window = make_window(qtbot)
 
     tool_call = FakeToolCallDelta(index=0, id="call_1", function=FakeFunctionDelta(name="create_story"))
@@ -190,7 +194,7 @@ def test_chat_creating_story_updates_sidebar_and_entity_column(qtbot, monkeypatc
     send(qtbot, window, "please create a story")
 
     assert window.current_story_id == window.coordinator_state.current_story_id
-    assert window.sidebar.story_list.currentItem().text() == "Agent Story"
+    assert window.story_header.story_label.text() == "Agent Story"
     assert window.entity_column.current_story_id == window.current_story_id
 
 
@@ -200,7 +204,7 @@ def test_chat_editing_scene_refreshes_entity_column(qtbot, monkeypatch):
         create_scene(session, story_id=story_id, position=0, description="Original description")
 
     window = make_window(qtbot)
-    window.sidebar.story_list.setCurrentRow(0)
+    select_story(window, story_id)
 
     with session_scope() as session:
         scene_id = list_scenes(session, story_id)[0].id
@@ -227,7 +231,7 @@ def test_chat_editing_scene_refreshes_entity_column(qtbot, monkeypatch):
 def test_chat_creating_character_refreshes_entity_column(qtbot, monkeypatch):
     story_id = seed_story("A Story")
     window = make_window(qtbot)
-    window.sidebar.story_list.setCurrentRow(0)
+    select_story(window, story_id)
 
     tool_call = FakeToolCallDelta(index=0, id="call_1", function=FakeFunctionDelta(name="create_character"))
     args = FakeToolCallDelta(index=0, function=FakeFunctionDelta(arguments='{"name": "Alex"}'))
@@ -245,16 +249,3 @@ def test_chat_creating_character_refreshes_entity_column(qtbot, monkeypatch):
         assert len(list_characters(session, story_id)) == 1
     assert window.entity_column.characters.list_widget.count() == 1
     assert window.entity_column.characters.list_widget.item(0).text() == "Alex"
-
-
-def test_collapse_toggle_drives_sidebar_pane_width_to_zero_and_back(qtbot):
-    window = make_window(qtbot)
-
-    initial_width = window.splitter.sizes()[0]
-    assert initial_width > 0
-
-    qtbot.mouseClick(window.sidebar.collapse_button, Qt.MouseButton.LeftButton)
-    assert window.splitter.sizes()[0] == 0
-
-    qtbot.mouseClick(window.sidebar.collapse_button, Qt.MouseButton.LeftButton)
-    assert window.splitter.sizes()[0] > 0

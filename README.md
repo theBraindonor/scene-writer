@@ -81,11 +81,14 @@ before cancelling it; confirming stops the generation and saves whatever prose h
 so far.
 
 Use the unified desktop GUI via the `scene-writer` console script, a PySide6 application with
-four regions: a collapsible sidebar for picking or creating a story; a main entity column for
-viewing and editing that story's title, scenario, and style guidance, its scenes, cast, and
-locations, and which characters and locations are assigned to each scene; a read-only rendering
-column showing the selected scene's currently active rendering; and a full-width chat panel
-driving the same coordinating agent `scene-coordinator chat` uses:
+four regions: a story header showing the current story's title with "New Story" and "Open"
+buttons — "Open" launches a modal picker listing stories from the database (with a checkbox to
+include archived ones) to switch between them; a main entity column, organized into Story,
+Characters, Locations, and Scenes tabs, for viewing and editing that story's title, scenario, and
+style guidance, its scenes, cast, and locations, and which characters and locations are assigned
+to each scene; a read-only rendering column showing the selected scene's currently active
+rendering; and a full-width chat panel driving the same coordinating agent `scene-coordinator
+chat` uses:
 
 ```
 pdm run scene-writer
@@ -93,7 +96,7 @@ pdm run scene-writer
 
 Direct edits made in the entity column and edits made by chatting with the coordinator both go
 through the same underlying data layer, so the two ways of working stay consistent with each
-other — creating a story from the sidebar and asking the agent to add a scene, for instance, both
+other — creating a story from the header and asking the agent to add a scene, for instance, both
 show up in the same entity column. The rendering column is view-only for now; generating or
 regenerating a scene's prose is still done via `scene-coordinator render`. The chat panel reuses
 the `SCENE_COORDINATING_AGENT` configuration described below, same as `scene-coordinator chat`.
