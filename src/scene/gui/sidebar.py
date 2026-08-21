@@ -16,6 +16,7 @@ from PySide6.QtWidgets import (
 from scene.core.story import create_story as create_story_record
 from scene.core.story import list_stories
 from scene.data.database import session_scope
+from scene.gui.section_heading import section_heading
 
 
 class NewStoryDialog(QDialog):
@@ -80,6 +81,7 @@ class Sidebar(QWidget):
         self.new_story_button.clicked.connect(self._on_new_story_clicked)
 
         layout = QVBoxLayout(self)
+        layout.addWidget(section_heading("Stories"))
         layout.addWidget(self.story_list)
         layout.addWidget(self.new_story_button)
 

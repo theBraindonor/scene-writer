@@ -1,6 +1,7 @@
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import QHBoxLayout, QLabel, QMainWindow, QSplitter, QVBoxLayout, QWidget
 
+from scene.gui.entity_column.column import EntityColumn
 from scene.gui.sidebar import Sidebar
 
 SIDEBAR_PANE_INDEX = 0
@@ -16,7 +17,7 @@ def _placeholder(text: str) -> QLabel:
 class MainWindow(QMainWindow):
     """Four-region application shell: sidebar, entity column, rendering column, chat panel.
 
-    Only the sidebar is functional in this encounter; the other three panes are
+    The sidebar and entity column are functional; the rendering column and chat panel remain
     placeholders that later encounters replace.
     """
 
@@ -33,9 +34,12 @@ class MainWindow(QMainWindow):
         self.sidebar.story_selected.connect(self._on_story_selected)
         self.sidebar.collapse_toggled.connect(self._on_sidebar_collapse_toggled)
 
+        self.entity_column = EntityColumn()
+        self.current_story_changed.connect(self.entity_column.set_story)
+
         self.splitter = QSplitter(Qt.Orientation.Horizontal)
         self.splitter.addWidget(self.sidebar)
-        self.splitter.addWidget(_placeholder("Entity Column"))
+        self.splitter.addWidget(self.entity_column)
         self.splitter.addWidget(_placeholder("Rendering Column"))
 
         # Sidebar's collapse toggle lives in this always-visible header, not inside the

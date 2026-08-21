@@ -31,9 +31,9 @@ def test_window_shows_placeholder_panes(qtbot):
     window = make_window(qtbot)
 
     labels = {label.text() for label in window.findChildren(QLabel)}
-    assert "Entity Column" in labels
     assert "Rendering Column" in labels
     assert "Chat Panel" in labels
+    assert window.entity_column.stack.currentWidget() is window.entity_column.empty_label
 
 
 def test_selecting_story_updates_current_story_id_and_emits_signal(qtbot):
@@ -45,6 +45,7 @@ def test_selecting_story_updates_current_story_id_and_emits_signal(qtbot):
 
     assert blocker.args == [story_id]
     assert window.current_story_id == story_id
+    assert window.entity_column.current_story_id == story_id
 
 
 def test_creating_story_via_sidebar_updates_window(qtbot, monkeypatch):

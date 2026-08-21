@@ -9,9 +9,9 @@ kind: scripted
 name: e002-entity-column-crud
 regions:
 - gui
-status: draft
+status: completed
 updated_by: John Hoff
-updated_on: '2026-08-20T22:46:50Z'
+updated_on: '2026-08-21T02:31:57Z'
 ---
 
 # E002 — Entity Column CRUD
@@ -83,3 +83,15 @@ widget fills, and the `current_story_changed` signal it consumes.
   checking via `scene-data`).
 
 ## Log
+
+### Review - 2026-08-21T01:47:10Z - John Hoff
+
+e002-entity-column-crud honors both applicable lore items: the Plan explicitly gates completion on `pdm run lint` (ruff, 120-char lines) and `pdm run pytest` passing, and its designated test file `test/scene/gui/test_entity_column.py` correctly mirrors the planned `src/scene/gui/entity_column.py` implementation module per the unit-testing convention, with a concrete, non-trivial set of test scenarios specified in Requirements. One minor latent ambiguity: Plan step 1's escape hatch to split the widget into a package if it grows large enough isn't paired with a corresponding contingency for the test mirroring structure, which would need updating to stay conformant if that path is taken. Reliance on e001's isolated-database/qtbot test patterns is reasonable continuity and outside this encounter's cited surface. No lore conflicts found; approved to proceed.
+
+### Message - 2026-08-21T02:31:52Z - John Hoff
+
+Automated verification: `pdm run pytest` (337 passed, incl. 41 tests in test/scene/gui/) and `pdm run lint` (zero errors) both pass. Manual verification of `pdm run scene-writer` was done by the developer directly (not automated), who found and reported two UX defects, both fixed and covered by new tests: (1) none of the sections (Story/Scenes/Characters/Locations/Stories) had a visible heading, so list contents and forms were unidentifiable without knowing the schema — added a shared `section_heading` helper (`scene/gui/section_heading.py`) and applied it to every section; (2) the character/location assignment checklists in the Scenes section used QListWidget's default expanding size policy, leaving blank space below short lists that looked like a selectable empty row — added `scene/gui/list_sizing.py`'s `fit_list_height_to_contents` and applied it to every entity list embedded in the crowded entity-column layout (scenes, characters, locations, and the two assignment checklists), while deliberately leaving the sidebar's story list unconstrained since it's the sole content of its own full-height pane, not a stacked/crowded context.
+
+### Completed - 2026-08-21T02:31:57Z - John Hoff
+
+All tests pass (337/337) and lint is clean. Developer performed manual verification directly and reported two UX issues (missing section headings, phantom empty rows in short assignment lists), both fixed and covered by new tests per the message above.
