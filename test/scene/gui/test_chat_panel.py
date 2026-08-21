@@ -173,6 +173,18 @@ def test_toggle_button_collapses_and_expands_content_and_clear_button(qtbot):
     assert panel.toggle_button.text() == ChatPanel.EXPANDED_LABEL
 
 
+def test_toggle_button_emits_collapse_toggled(qtbot):
+    panel, _state = make_panel(qtbot)
+
+    with qtbot.waitSignal(panel.collapse_toggled, timeout=1000) as blocker:
+        panel.toggle_button.click()
+    assert blocker.args == [False]
+
+    with qtbot.waitSignal(panel.collapse_toggled, timeout=1000) as blocker:
+        panel.toggle_button.click()
+    assert blocker.args == [True]
+
+
 def test_clear_button_empties_transcript_and_history(qtbot, monkeypatch):
     script_stream(monkeypatch, [[make_chunk(content="Hello there!")]])
     panel, state = make_panel(qtbot)

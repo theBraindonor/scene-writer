@@ -114,6 +114,7 @@ class ChatPanel(QWidget):
     """
 
     turn_completed = Signal()
+    collapse_toggled = Signal(bool)  # expanded
 
     EXPANDED_LABEL = "▾ Chat"
     COLLAPSED_LABEL = "▸ Chat"
@@ -160,6 +161,10 @@ class ChatPanel(QWidget):
         self.transcript_scroll = QScrollArea()
         self.transcript_scroll.setWidgetResizable(True)
         self.transcript_scroll.setWidget(self.transcript_container)
+        # Roughly doubles the transcript's natural (unscrolled) height so more chat history is
+        # visible at once without needing to scroll, now that the chat panel lives in the left
+        # column at its own preferred height rather than stretching to fill leftover space.
+        self.transcript_scroll.setMinimumHeight(140)
         # QScrollArea only recomputes its scrollable range during layout, after the widgets
         # inserted this event-loop turn have been sized — reading maximum() immediately after
         # insertWidget() returns the range from *before* the new content, so the view lags one
@@ -198,6 +203,7 @@ class ChatPanel(QWidget):
         self.content_widget.setVisible(expanded)
         self.clear_button.setVisible(expanded)
         self.toggle_button.setText(self.EXPANDED_LABEL if expanded else self.COLLAPSED_LABEL)
+        self.collapse_toggled.emit(expanded)
 
     def _on_clear_clicked(self) -> None:
         if not self.input_edit.isEnabled():

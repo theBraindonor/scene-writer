@@ -108,6 +108,101 @@ def test_window_shows_placeholder_panes(qtbot):
     assert window.chat_panel.input_edit.isEnabled()
 
 
+def test_left_column_composition(qtbot):
+    window = make_window(qtbot)
+
+    assert window.story_header.parentWidget() is window.left_column
+    assert window.entity_column.parentWidget() is window.vertical_splitter
+    assert window.chat_panel.parentWidget() is window.vertical_splitter
+    assert window.vertical_splitter.parentWidget() is window.left_column
+
+
+def test_horizontal_splitter_defaults_to_even_split_and_survives_resizes(qtbot):
+    # Widths chosen comfortably above both panes' content-driven minimum width (~700px
+    # combined), so the even split isn't fighting a minimum-size floor on either side.
+    window = make_window(qtbot)
+
+    for width in (1300, 1600):
+        window.resize(width, 600)
+        sizes = window.splitter.sizes()
+        assert abs(sizes[0] - sizes[1]) <= 4
+
+
+def test_dragging_horizontal_splitter_persists_across_resizes(qtbot):
+    window = make_window(qtbot)
+    window.resize(1400, 600)
+
+    window.splitter.moveSplitter(500, 1)
+    assert window._horizontal_manually_adjusted
+    dragged_sizes = window.splitter.sizes()
+    assert abs(dragged_sizes[0] - dragged_sizes[1]) > 100
+
+    window.resize(1800, 600)
+
+    # The drag should still dominate: the split stays clearly uneven rather than snapping back
+    # to an even 900/900, though Qt's own proportional resize behavior means the exact pixel
+    # values may shift somewhat as the window grows.
+    sizes = window.splitter.sizes()
+    assert abs(sizes[0] - sizes[1]) > 100
+
+
+def test_entity_column_receives_extra_vertical_space_over_chat_panel(qtbot):
+    story_id = seed_story("A Story")
+    window = make_window(qtbot)
+
+    select_story(window, story_id)
+
+    assert window.entity_column.height() > window.chat_panel.height()
+
+
+def test_chat_panel_height_stays_pinned_across_resizes_until_dragged(qtbot):
+    window = make_window(qtbot)
+    window.resize(1400, 800)
+
+    initial_chat_height = window.chat_panel.height()
+
+    window.resize(1400, 1000)
+    assert window.chat_panel.height() == initial_chat_height
+
+    window.vertical_splitter.moveSplitter(600, 1)
+    dragged_chat_height = window.chat_panel.height()
+    assert dragged_chat_height != initial_chat_height
+
+    window.resize(1400, 1200)
+    assert window.chat_panel.height() == dragged_chat_height
+
+
+def test_collapsing_chat_panel_gives_its_space_to_entity_column(qtbot):
+    window = make_window(qtbot)
+    window.resize(1400, 800)
+
+    expanded_entity_height = window.entity_column.height()
+    expanded_chat_height = window.chat_panel.height()
+
+    window.chat_panel.toggle_button.setChecked(False)
+
+    assert window.chat_panel.height() < expanded_chat_height
+    assert window.entity_column.height() > expanded_entity_height
+
+    window.chat_panel.toggle_button.setChecked(True)
+
+    assert window.chat_panel.height() == expanded_chat_height
+    assert window.entity_column.height() == expanded_entity_height
+
+
+def test_collapsing_chat_panel_restores_a_manually_dragged_height_on_expand(qtbot):
+    window = make_window(qtbot)
+    window.resize(1400, 800)
+
+    window.vertical_splitter.moveSplitter(400, 1)
+    dragged_chat_height = window.chat_panel.height()
+
+    window.chat_panel.toggle_button.setChecked(False)
+    window.chat_panel.toggle_button.setChecked(True)
+
+    assert window.chat_panel.height() == dragged_chat_height
+
+
 def test_selecting_story_updates_current_story_id_and_emits_signal(qtbot):
     story_id = seed_story("A Story")
     window = make_window(qtbot)

@@ -34,6 +34,7 @@ class StoryDetailWidget(QWidget):
         layout.addLayout(form)
         layout.addWidget(self.save_button)
         layout.addWidget(self.archive_button)
+        layout.addStretch()
 
     def load(self, story_id: int) -> None:
         self.story_id = story_id

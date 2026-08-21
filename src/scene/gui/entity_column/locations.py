@@ -62,6 +62,7 @@ class LocationsWidget(QWidget):
         layout.addWidget(self.list_widget)
         layout.addLayout(form)
         layout.addLayout(buttons)
+        layout.addStretch()
 
     def load(self, story_id: int) -> None:
         self.story_id = story_id

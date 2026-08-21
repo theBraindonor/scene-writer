@@ -85,6 +85,7 @@ class ScenesWidget(QWidget):
         layout.addWidget(self.character_list)
         layout.addWidget(QLabel("Locations in Scene"))
         layout.addWidget(self.location_list)
+        layout.addStretch()
 
     def load(self, story_id: int) -> None:
         self.story_id = story_id
