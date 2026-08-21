@@ -9,9 +9,9 @@ kind: scripted
 name: e005-readme-gui-section
 regions:
 - gui
-status: draft
+status: completed
 updated_by: John Hoff
-updated_on: '2026-08-20T22:47:43Z'
+updated_on: '2026-08-21T04:09:43Z'
 ---
 
 # E005 — README GUI Section
@@ -54,3 +54,11 @@ without duplicating detail that belongs in code.
 - Run `pdm run lint` and confirm zero errors.
 
 ## Log
+
+### Review - 2026-08-21T04:08:17Z - John Hoff
+
+Reviewed e005-readme-gui-section (scripted, draft) against the two applicable lore items (linting, unit-testing) using README.md, the encounter body, the gui region, and both lore bodies. The Plan satisfies linting by running `pdm run lint` in both the Plan and Verification steps, and correctly omits test coverage per the unit-testing lore, which only governs new/modified code — this is a documentation-only change with none, and Requirements explicitly call out this precedent from c002/c003/c004's equivalent README encounters. No lore conflicts found; the Plan concretely names its target file and enumerates the required documentation points plus a staleness pass over the rest of the README. PASS-WITH-NOTES.
+
+### Completed - 2026-08-21T04:09:43Z - John Hoff
+
+Added a scene-writer GUI section to README.md (sidebar/entity column/rendering column/chat panel, view-only rendering column note, shared-data-layer note), updated the intro paragraph and the src/scene/gui project-layout bullet to no longer call the GUI "planned"/"not yet implemented". pdm run lint passes with zero errors. Developer reviewed the rendered README and confirmed it reads accurately.
