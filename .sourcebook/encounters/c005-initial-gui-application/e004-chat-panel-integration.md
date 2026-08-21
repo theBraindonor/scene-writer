@@ -11,9 +11,9 @@ kind: scripted
 name: e004-chat-panel-integration
 regions:
 - gui
-status: draft
+status: completed
 updated_by: John Hoff
-updated_on: '2026-08-20T22:47:30Z'
+updated_on: '2026-08-21T04:05:44Z'
 ---
 
 # E004 — Chat Panel Integration
@@ -88,3 +88,15 @@ completed turn must be able to refresh all three.
   reflects the change once the turn completes.
 
 ## Log
+
+### Review - 2026-08-21T02:50:04Z - John Hoff
+
+Reviewed against the two applicable world lore items (linting, unit-testing) — both are explicitly and concretely satisfied: the Plan runs `pdm run lint` with zero-errors required in Verification, and adds `test/scene/gui/test_chat_panel.py` (or `test_main_window.py`), correctly mirroring the `gui` region's `src/scene/gui` path, with concrete scenarios (streamed transcript, story-id sync on agent-driven story changes, entity-column refresh after edits) scripted in the same `stream_complete`/`qtbot` pattern as the existing `test_coordinator_app.py`, gated on `pdm run pytest` passing. No conflicts found; encounter is reviewable and lore-consistent.
+
+### Message - 2026-08-21T04:05:40Z - John Hoff
+
+Automated verification: `pdm run pytest` (357 passed) and `pdm run lint` (zero errors) both pass. Developer performed manual verification directly and reported three UX issues, all fixed and covered by new tests: (1) the transcript wasn't scrolling to the newest message — `verticalScrollBar().maximum()` was read immediately after inserting a widget, before Qt recomputed the scrollable range, so the view lagged one message behind; fixed by scrolling in response to the scrollbar's `rangeChanged` signal instead. (2) the transcript background read too close to the surrounding window chrome — gave `transcript_container` an explicit white background with black text. (3) added the requested UX: the "Chat" heading is now a `▾ Chat`/`▸ Chat` toggle button that collapses/expands the transcript and input, with a Clear button next to it (visible only while expanded) that empties both the transcript and `CoordinatorState.history`, guarded against clearing while a turn is in flight on the background thread.
+
+### Completed - 2026-08-21T04:05:44Z - John Hoff
+
+All tests pass (357/357) and lint is clean. Developer performed manual verification directly and reported three UX issues (scroll lag, low-contrast transcript background, missing collapse/clear controls), all fixed and covered by new tests per the message above. Chat panel now drives the coordinating agent on a background QThread with full two-way story sync exercised end-to-end for the first time in this campaign.

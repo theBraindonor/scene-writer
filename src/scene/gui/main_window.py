@@ -1,6 +1,14 @@
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtWidgets import QHBoxLayout, QLabel, QMainWindow, QSplitter, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QHBoxLayout, QMainWindow, QSplitter, QVBoxLayout, QWidget
 
+from scene.agent.config import get_llm_config
+from scene.agent.coordinator.state import CoordinatorState
+from scene.agent.coordinator.tools.character import build_character_tools
+from scene.agent.coordinator.tools.location import build_location_tools
+from scene.agent.coordinator.tools.scene import build_scene_tools
+from scene.agent.coordinator.tools.story import build_story_tools
+from scene.agent.role import AgentRole
+from scene.gui.chat_panel import ChatPanel
 from scene.gui.entity_column.column import EntityColumn
 from scene.gui.rendering_column import RenderingColumn
 from scene.gui.sidebar import Sidebar
@@ -9,17 +17,12 @@ SIDEBAR_PANE_INDEX = 0
 DEFAULT_SIDEBAR_WIDTH = 220
 
 
-def _placeholder(text: str) -> QLabel:
-    label = QLabel(text)
-    label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-    return label
-
-
 class MainWindow(QMainWindow):
     """Four-region application shell: sidebar, entity column, rendering column, chat panel.
 
-    The sidebar, entity column, and rendering column are functional; the chat panel remains a
-    placeholder that a later encounter replaces.
+    All four regions are functional. The chat panel drives the same coordinating agent
+    `scene-coordinator chat` uses, sharing one `CoordinatorState`/tool list with this window so
+    direct edits and chat-driven edits stay in sync.
     """
 
     current_story_changed = Signal(object)  # int | None
@@ -45,6 +48,23 @@ class MainWindow(QMainWindow):
         # rather than relying on that as an implementation detail of EntityColumn.
         self.current_story_changed.connect(lambda _story_id: self.rendering_column.set_scene(None))
 
+        self.coordinator_state = CoordinatorState()
+        self.coordinator_tools = [
+            *build_story_tools(self.coordinator_state),
+            *build_scene_tools(self.coordinator_state),
+            *build_character_tools(self.coordinator_state),
+            *build_location_tools(self.coordinator_state),
+        ]
+        try:
+            llm_config = get_llm_config(AgentRole.COORDINATING)
+            llm_error = None
+        except (RuntimeError, TypeError) as error:
+            llm_config = None
+            llm_error = f"Could not resolve the coordinating agent's model: {error}"
+
+        self.chat_panel = ChatPanel(llm_config, self.coordinator_state, self.coordinator_tools, error=llm_error)
+        self.chat_panel.turn_completed.connect(self._on_chat_turn_completed)
+
         self.splitter = QSplitter(Qt.Orientation.Horizontal)
         self.splitter.addWidget(self.sidebar)
         self.splitter.addWidget(self.entity_column)
@@ -61,12 +81,23 @@ class MainWindow(QMainWindow):
         layout = QVBoxLayout(central)
         layout.addLayout(header_layout)
         layout.addWidget(self.splitter)
-        layout.addWidget(_placeholder("Chat Panel"))
+        layout.addWidget(self.chat_panel)
         self.setCentralWidget(central)
 
     def _on_story_selected(self, story_id: int | None) -> None:
         self.current_story_id = story_id
+        self.coordinator_state.current_story_id = story_id
         self.current_story_changed.emit(story_id)
+
+    def _on_chat_turn_completed(self) -> None:
+        agent_story_id = self.coordinator_state.current_story_id
+        if agent_story_id != self.current_story_id:
+            # Re-populates from the database (picking up anything the agent created) and
+            # selects the agent's current story, which cascades through _on_story_selected
+            # into current_story_changed — refreshing the entity and rendering columns too.
+            self.sidebar.refresh_stories(select_story_id=agent_story_id)
+        else:
+            self.entity_column.set_story(self.current_story_id)
 
     def _on_sidebar_collapse_toggled(self, collapsed: bool) -> None:
         sizes = self.splitter.sizes()
