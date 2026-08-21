@@ -9,9 +9,9 @@ kind: scripted
 name: e003-rendering-column
 regions:
 - gui
-status: draft
+status: completed
 updated_by: John Hoff
-updated_on: '2026-08-20T22:47:05Z'
+updated_on: '2026-08-21T02:47:46Z'
 ---
 
 # E003 — Rendering Column
@@ -61,3 +61,11 @@ the `QSplitter` region this widget fills.
   column resets.
 
 ## Log
+
+### Review - 2026-08-21T02:38:46Z - John Hoff
+
+Reviewed against the two applicable lore items (linting, unit-testing) — both explicitly honored: the Plan runs `pdm run lint` with a zero-errors gate, and adds `test/scene/gui/test_rendering_column.py` correctly mirroring the new `src/scene/gui/rendering_column.py` module, using pytest-qt with a `pdm run pytest`-passes gate. Spot-checked the Plan's factual claims against the actual `gui` region code (`MainWindow.current_story_changed`, `EntityColumn.current_scene_changed`, `ScenesWidget`'s unconditional re-emit on reselect) and the explicitly-cited `scene.core.rendering` functions and `RenderApp.NO_RENDERINGS_TEXT` precedent — all exist as described, so the Plan is concretely grounded rather than aspirational. No lore conflicts or gaps found; no unresolved flags.
+
+### Completed - 2026-08-21T02:47:46Z - John Hoff
+
+All tests pass (344/344, one unrelated pre-existing flaky test in test_coordinator_app.py confirmed passing in isolation) and lint is clean. Rendering column implemented as a read-only view of the selected scene's active rendering, with distinct empty states for "no scene selected" vs. "scene has no rendering yet," resetting on story switch. Developer completed manual verification directly.

@@ -2,6 +2,7 @@ from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import QHBoxLayout, QLabel, QMainWindow, QSplitter, QVBoxLayout, QWidget
 
 from scene.gui.entity_column.column import EntityColumn
+from scene.gui.rendering_column import RenderingColumn
 from scene.gui.sidebar import Sidebar
 
 SIDEBAR_PANE_INDEX = 0
@@ -17,8 +18,8 @@ def _placeholder(text: str) -> QLabel:
 class MainWindow(QMainWindow):
     """Four-region application shell: sidebar, entity column, rendering column, chat panel.
 
-    The sidebar and entity column are functional; the rendering column and chat panel remain
-    placeholders that later encounters replace.
+    The sidebar, entity column, and rendering column are functional; the chat panel remains a
+    placeholder that a later encounter replaces.
     """
 
     current_story_changed = Signal(object)  # int | None
@@ -37,10 +38,17 @@ class MainWindow(QMainWindow):
         self.entity_column = EntityColumn()
         self.current_story_changed.connect(self.entity_column.set_story)
 
+        self.rendering_column = RenderingColumn()
+        self.entity_column.current_scene_changed.connect(self.rendering_column.set_scene)
+        # Switching stories always resets the selected scene to None via EntityColumn's own
+        # cascade, but the rendering column depends on that reset explicitly per its contract
+        # rather than relying on that as an implementation detail of EntityColumn.
+        self.current_story_changed.connect(lambda _story_id: self.rendering_column.set_scene(None))
+
         self.splitter = QSplitter(Qt.Orientation.Horizontal)
         self.splitter.addWidget(self.sidebar)
         self.splitter.addWidget(self.entity_column)
-        self.splitter.addWidget(_placeholder("Rendering Column"))
+        self.splitter.addWidget(self.rendering_column)
 
         # Sidebar's collapse toggle lives in this always-visible header, not inside the
         # splitter pane it controls — that pane's width goes to zero on collapse, which
