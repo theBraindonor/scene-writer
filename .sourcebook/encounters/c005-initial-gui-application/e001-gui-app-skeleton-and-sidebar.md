@@ -8,11 +8,10 @@ kind: scripted
 name: e001-gui-app-skeleton-and-sidebar
 regions:
 - gui
-status: draft
+status: completed
 updated_by: John Hoff
-updated_on: '2026-08-20T22:46:30Z'
+updated_on: '2026-08-21T01:37:57Z'
 ---
-
 
 # E001 — GUI App Skeleton and Story Sidebar
 
@@ -85,3 +84,15 @@ for GUI tooling again.
   hides and restores the sidebar pane.
 
 ## Log
+
+### Review - 2026-08-21T01:14:38Z - John Hoff
+
+Reviewed against the two applicable lore items (linting, unit-testing): the Plan satisfies both — `pdm run lint` and `pdm run pytest` are run and required to pass per Verification. One structural gap: Plan step 4 leaves the sidebar's home ambiguous between a new `sidebar.py` module or a class folded into `main_window.py`, but step 5 commits to a single fixed test file (`test/scene/gui/test_main_window.py`) regardless — if the sidebar lands in its own module, this would leave its tests not mirroring unit-testing lore's module-to-test-path convention. Recommend resolving the sidebar's module location before/during implementation and naming the matching test file accordingly (`test_sidebar.py` if split out). Not blocking — pass with this note.
+
+### Message - 2026-08-21T01:37:25Z - John Hoff
+
+Verification: `pdm run pytest` (307 passed, incl. 11 new tests in test/scene/gui/) and `pdm run lint` (zero errors) both pass. Manually launched `pdm run scene-writer` as a real process and confirmed via screenshots: the window opens with all four regions visible (sidebar with Collapse toggle/story list/New Story button, Entity Column placeholder, Rendering Column placeholder, Chat Panel placeholder); the sidebar lists the existing story from the local dev database; the Collapse/Expand toggle drives the sidebar pane's splitter width to zero and restores it, confirmed live via screenshots both directions; the New Story dialog opens with Title/Scenario/Style Guidance fields and OK/Cancel, and accepts typed input correctly. Synthetic mouse clicks on the dialog's OK button were not reliably deliverable in this remote desktop environment (a KVM/Synergy input-sharing tool is active on the machine) despite the cursor landing on-target per GetCursorPos, so the OK-submit step of story creation was verified via the automated pytest-qt suite instead (test_creating_story_adds_and_selects, test_creating_story_via_sidebar_updates_window), which exercises the identical code path (dialog values -> create_story -> refresh_stories -> select and signal emission) through Qt's own test event delivery. Also noted and fixed during implementation: the collapse toggle button was originally laid out inside the Sidebar's own collapsible widget, which meant collapsing the pane to zero width also made the toggle unclickable to expand again — moved the button into an always-visible header row above the splitter (scene/gui/main_window.py) so it stays reachable regardless of collapse state. Per the earlier review note, the sidebar landed in its own module (scene/gui/sidebar.py) and its tests are in the mirrored test/scene/gui/test_sidebar.py, separate from test/scene/gui/test_main_window.py.
+
+### Completed - 2026-08-21T01:37:57Z - John Hoff
+
+All tests pass (307/307) and lint is clean. Manually verified the live app: window opens with all four regions, sidebar lists real story data, collapse/expand toggle confirmed working in both directions, and New Story dialog opens with correct fields and accepts input (dialog OK-submit verified via the equivalent automated pytest-qt path per the note above, due to click-automation limits in this environment). Fixed a real collapse-toggle-unclickable-when-collapsed bug found during manual verification.
