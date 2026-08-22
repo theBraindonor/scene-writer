@@ -240,7 +240,7 @@ def test_selecting_scene_updates_rendering_column(qtbot):
     with qtbot.waitSignal(window.entity_column.current_scene_changed, timeout=1000):
         window.entity_column.scenes.list_widget.setCurrentRow(0)
 
-    assert window.rendering_column.stack.currentWidget() is window.rendering_column.body_view
+    assert window.rendering_column.stack.currentWidget() is window.rendering_column.content_widget
     assert window.rendering_column.body_view.toPlainText() == "Once upon a time."
 
 
@@ -255,7 +255,7 @@ def test_switching_story_resets_rendering_column(qtbot):
     window = make_window(qtbot)
     select_story(window, first_story_id)
     window.entity_column.scenes.list_widget.setCurrentRow(0)
-    assert window.rendering_column.stack.currentWidget() is window.rendering_column.body_view
+    assert window.rendering_column.stack.currentWidget() is window.rendering_column.content_widget
 
     select_story(window, second_story_id)
 

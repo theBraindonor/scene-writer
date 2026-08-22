@@ -6,6 +6,8 @@ from sqlalchemy.orm import Session
 
 from scene.agent.config import LLMConfig
 from scene.agent.llm import stream_complete
+from scene.core.character import list_characters
+from scene.core.location import list_locations
 from scene.core.rendering import list_renderings
 from scene.core.scene import list_scenes
 from scene.core.scene_character import list_characters_for_scene
@@ -23,32 +25,40 @@ def find_next_unrendered_scene(session: Session, story_id: int) -> Scene | None:
 
 
 def _scene_detail_text(session: Session, scene: Scene) -> str:
-    lines = [
-        f"Scene {scene.position}: {scene.heading or '(untitled)'}",
-        f"Description: {scene.description}",
-        f"Required actions: {scene.required_actions or '(none)'}",
-        f"Length: {scene.length or '(unspecified)'}",
-    ]
+    character_names = ", ".join(character.name for character in list_characters_for_scene(session, scene.id))
+    location_names = ", ".join(location.name for location in list_locations_for_scene(session, scene.id))
 
-    characters = list_characters_for_scene(session, scene.id)
-    lines.append("Characters:")
-    if characters:
-        for character in characters:
-            lines.append(
-                f"- {character.name}: {character.description or '(no description)'} "
-                f"(Motive: {character.motive or '(none)'})"
-            )
-    else:
-        lines.append("(none)")
+    return "\n\n".join(
+        [
+            f"# Scene: {scene.heading or '(untitled)'}",
+            f"## Length\n\n{scene.length or '(unspecified)'}",
+            f"## Description\n\n{scene.description}",
+            f"## Locations\n\n{location_names or '(none)'}",
+            f"## Characters\n\n{character_names or '(none)'}",
+            f"## Required Elements\n\n{scene.required_actions or '(none)'}",
+        ]
+    )
 
-    locations = list_locations_for_scene(session, scene.id)
-    lines.append("Locations:")
-    if locations:
-        for location in locations:
-            lines.append(f"- {location.name}: {location.description or '(no description)'}")
-    else:
-        lines.append("(none)")
 
+def _character_roster_markdown(session: Session, story_id: int) -> str:
+    characters = list_characters(session, story_id)
+    if not characters:
+        return "## Characters\n\n(none)"
+    lines = ["## Characters", ""]
+    for character in characters:
+        description = character.description or "(no description)"
+        motive = character.motive or "(none)"
+        lines.append(f"- **{character.name}**: {description} (Motive: {motive})")
+    return "\n".join(lines)
+
+
+def _location_roster_markdown(session: Session, story_id: int) -> str:
+    locations = list_locations(session, story_id)
+    if not locations:
+        return "## Locations\n\n(none)"
+    lines = ["## Locations", ""]
+    for location in locations:
+        lines.append(f"- **{location.name}**: {location.description or '(no description)'}")
     return "\n".join(lines)
 
 
@@ -69,13 +79,25 @@ def build_render_messages(session: Session, story_id: int, target_scene_id: int)
     if target is None:
         raise ValueError(f"Scene {target_scene_id} not found in story {story_id}.")
 
-    system_lines = [f"Scenario:\n{story.scenario}"]
-    if story.style_guidance:
-        system_lines.append(f"Style guidance:\n{story.style_guidance}")
-    system_lines.append(
-        "You are writing one scene at a time for this story. Write only the requested "
-        "scene's prose; do not summarize, repeat, or continue past it."
+    fiction_prefix = (
+        "You are a fiction writer drafting a scene of an ongoing story. This is a work of "
+        "fiction: the scenario and this scene's details have already been laid out ahead of "
+        "time by the story's author, so treat them as established facts of the story world "
+        "rather than something to invent, question, or reconsider. Your job is only to write "
+        "the requested scene's prose."
     )
+    fiction_suffix = (
+        "The story's author will give you one scene at a time, in the order that they will "
+        "appear in the larger story. You will need to complete the scene so that the next "
+        "scene of the story can be written. It is important that you include all required "
+        "elements—they are intended to provide the spine of continuity for the story."
+    )
+    system_lines = [fiction_prefix, f"## Scenario\n\n{story.scenario}"]
+    if story.style_guidance:
+        system_lines.append(f"## Style Guidance\n\n{story.style_guidance}")
+    system_lines.append(_character_roster_markdown(session, story_id))
+    system_lines.append(_location_roster_markdown(session, story_id))
+    system_lines.append(fiction_suffix)
     messages: list[dict[str, Any]] = [{"role": "system", "content": "\n\n".join(system_lines)}]
 
     for scene in scenes:
@@ -84,8 +106,7 @@ def build_render_messages(session: Session, story_id: int, target_scene_id: int)
         messages.append({"role": "user", "content": _scene_detail_text(session, scene)})
         messages.append({"role": "assistant", "content": _active_rendering_body(session, scene)})
 
-    target_prompt = f"{_scene_detail_text(session, target)}\n\nWrite this scene's prose now."
-    messages.append({"role": "user", "content": target_prompt})
+    messages.append({"role": "user", "content": _scene_detail_text(session, target)})
     return messages
 
 

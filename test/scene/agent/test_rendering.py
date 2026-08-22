@@ -84,7 +84,6 @@ def test_build_render_messages_no_prior_scenes_has_single_user_message(session, 
     assert len(messages) == 2
     assert messages[1]["role"] == "user"
     assert "Arrival" in messages[1]["content"]
-    assert "Write this scene's prose now." in messages[1]["content"]
 
 
 def test_build_render_messages_includes_prior_scene_detail_and_active_rendering(session, story_id):
@@ -103,7 +102,53 @@ def test_build_render_messages_includes_prior_scene_detail_and_active_rendering(
     assert "Departure" in messages[3]["content"]
 
 
-def test_build_render_messages_includes_character_and_location_detail(session, story_id):
+def test_build_render_messages_scene_message_lists_character_and_location_names_only(session, story_id):
+    scene = create_scene(session, story_id=story_id, position=0, description="First")
+    alex = create_character(session, story_id=story_id, name="Alex", description="A wanderer", motive="Find home")
+    sam = create_character(session, story_id=story_id, name="Sam")
+    tavern = create_location(session, story_id=story_id, name="The Tavern", description="A cozy inn")
+    assign_character(session, scene.id, alex.id)
+    assign_character(session, scene.id, sam.id)
+    assign_location(session, scene.id, tavern.id)
+
+    messages = build_render_messages(session, story_id, scene.id)
+
+    scene_content = messages[-1]["content"]
+    assert "## Characters\n\nAlex, Sam" in scene_content
+    assert "## Locations\n\nThe Tavern" in scene_content
+    assert "Find home" not in scene_content
+    assert "A cozy inn" not in scene_content
+
+
+def test_build_render_messages_scene_message_sections_appear_in_requested_order(session, story_id):
+    scene = create_scene(
+        session,
+        story_id=story_id,
+        position=0,
+        description="First",
+        heading="Arrival",
+        required_actions="Knock on the door",
+        length="500 words",
+    )
+    character = create_character(session, story_id=story_id, name="Alex")
+    location = create_location(session, story_id=story_id, name="The Tavern")
+    assign_character(session, scene.id, character.id)
+    assign_location(session, scene.id, location.id)
+
+    messages = build_render_messages(session, story_id, scene.id)
+    scene_content = messages[-1]["content"]
+
+    assert scene_content.startswith("# Scene: Arrival")
+    title_index = scene_content.index("# Scene: Arrival")
+    length_index = scene_content.index("## Length")
+    description_index = scene_content.index("## Description")
+    locations_index = scene_content.index("## Locations")
+    characters_index = scene_content.index("## Characters")
+    required_elements_index = scene_content.index("## Required Elements")
+    assert title_index < length_index < description_index < locations_index < characters_index < required_elements_index
+
+
+def test_build_render_messages_system_message_has_full_character_and_location_details(session, story_id):
     scene = create_scene(session, story_id=story_id, position=0, description="First")
     character = create_character(session, story_id=story_id, name="Alex", description="A wanderer", motive="Find home")
     location = create_location(session, story_id=story_id, name="The Tavern", description="A cozy inn")
@@ -112,11 +157,23 @@ def test_build_render_messages_includes_character_and_location_detail(session, s
 
     messages = build_render_messages(session, story_id, scene.id)
 
-    content = messages[-1]["content"]
-    assert "Alex" in content
-    assert "Find home" in content
-    assert "The Tavern" in content
-    assert "A cozy inn" in content
+    system_content = messages[0]["content"]
+    assert "## Characters" in system_content
+    assert "**Alex**: A wanderer (Motive: Find home)" in system_content
+    assert "## Locations" in system_content
+    assert "**The Tavern**: A cozy inn" in system_content
+
+
+def test_build_render_messages_system_roster_includes_unassigned_characters_and_locations(session, story_id):
+    scene = create_scene(session, story_id=story_id, position=0, description="First")
+    create_character(session, story_id=story_id, name="Unassigned Character")
+    create_location(session, story_id=story_id, name="Unassigned Location")
+
+    messages = build_render_messages(session, story_id, scene.id)
+
+    system_content = messages[0]["content"]
+    assert "Unassigned Character" in system_content
+    assert "Unassigned Location" in system_content
 
 
 def test_build_render_messages_raises_when_prior_scene_has_no_active_rendering(session, story_id):

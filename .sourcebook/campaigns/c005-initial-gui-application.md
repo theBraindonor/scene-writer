@@ -3,9 +3,9 @@ archived: false
 created_by: John Hoff
 created_on: '2026-08-20T21:58:36Z'
 name: c005-initial-gui-application
-status: open
+status: completed
 updated_by: John Hoff
-updated_on: '2026-08-20T22:29:31Z'
+updated_on: '2026-08-21T20:42:31Z'
 ---
 
 # C005 — Initial GUI Application
@@ -88,3 +88,7 @@ purely a new UI consumer of those existing services, exactly as `c004` was for r
   (the column exists and displays correctly) without pulling that whole workflow in at once.
 
 ## Log
+
+### Completed - 2026-08-21T20:42:31Z - John Hoff
+
+All seven encounters delivered: the PySide6 app skeleton with collapsible sidebar (e001), full entity-column CRUD (e002), a read-only rendering column (e003), chat-panel integration with the coordinating agent (e004), README documentation (e005), and a follow-up layout rework replacing the sidebar with a story header + tabbed entity column and a draggable fifty-fifty left/right split with the chat panel (e006, e007). The GUI shell is now at a steady-state logical layout. Per the developer's direction at close-out, further work moves to a new campaign (c006-gui-usability) focused on streamlining the existing components into a fully usable application — starting with bringing the rendering column's create/browse/activate workflow (currently only available via `scene-coordinator render`) into the GUI, as this campaign's scope explicitly deferred.

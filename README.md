@@ -86,9 +86,8 @@ buttons — "Open" launches a modal picker listing stories from the database (wi
 include archived ones) to switch between them; a main entity column, organized into Story,
 Characters, Locations, and Scenes tabs, for viewing and editing that story's title, scenario, and
 style guidance, its scenes, cast, and locations, and which characters and locations are assigned
-to each scene; a read-only rendering column showing the selected scene's currently active
-rendering; and a full-width chat panel driving the same coordinating agent `scene-coordinator
-chat` uses:
+to each scene; a rendering column for the selected scene's renderings; and a full-width chat
+panel driving the same coordinating agent `scene-coordinator chat` uses:
 
 ```
 pdm run scene-writer
@@ -97,9 +96,20 @@ pdm run scene-writer
 Direct edits made in the entity column and edits made by chatting with the coordinator both go
 through the same underlying data layer, so the two ways of working stay consistent with each
 other — creating a story from the header and asking the agent to add a scene, for instance, both
-show up in the same entity column. The rendering column is view-only for now; generating or
-regenerating a scene's prose is still done via `scene-coordinator render`. The chat panel reuses
-the `SCENE_COORDINATING_AGENT` configuration described below, same as `scene-coordinator chat`.
+show up in the same entity column. The rendering column mirrors `scene-coordinator render`'s
+workflow: a version list shows every rendering generated for the selected scene, marking which
+one is active; selecting a different version and clicking "Activate Version" makes it active;
+"Render" (which regenerates in place once the scene already has an active rendering) streams a
+new rendering live and activates it once finished, blocked with a message if an earlier scene in
+the story doesn't have an active rendering yet; "Delete Version" removes a version after
+confirmation (a scene's only rendering, or its currently active one, can't be deleted); and while
+a generation is in progress, "Render" is replaced by "Cancel", which stops it after confirmation
+and saves whatever prose had been produced so far as a new version. Checking "Preview Prompt"
+before clicking "Render" opens a dialog showing the exact messages that will be sent to the LLM
+— useful for verifying multi-scene continuity context is assembled correctly — with "Proceed"
+(starts the generation) and "Cancel" (aborts it) buttons. The chat panel reuses the
+`SCENE_COORDINATING_AGENT` configuration described below, same as `scene-coordinator chat`; the
+rendering column reuses `SCENE_RENDERING_AGENT`, same as `scene-coordinator render`.
 
 Each agent's LLM connection is configured via two gitignored files, each with a
 committed `.example` template: `models.yaml` defines named model profiles (a litellm-style
