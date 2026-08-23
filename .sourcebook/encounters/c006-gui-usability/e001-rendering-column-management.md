@@ -8,9 +8,9 @@ kind: scripted
 name: e001-rendering-column-management
 regions:
 - gui
-status: open
+status: completed
 updated_by: John Hoff
-updated_on: '2026-08-22T05:17:38Z'
+updated_on: '2026-08-22T15:33:05Z'
 ---
 
 # E001 — Rendering Column Management
@@ -147,3 +147,7 @@ Fixed a bug reported by the developer: generation wasn't reliably auto-saving on
 ### Message - 2026-08-22T05:17:38Z - John Hoff
 
 Two readability/usability refinements to the rendering column's body view, per the developer's direct request (they're testing live in a running instance, so verification here was lint + `pdm run pytest` only, no GUI smoke test this round): (1) increased the body view's font size by 50% (`BODY_FONT_SCALE = 1.5`, applied once at construction relative to the widget's inherited default point size) as a first pass at making generated prose easier to read; (2) the body view now auto-scrolls to the bottom as new content streams in during generation, via `QTimer.singleShot(0, ...)` scheduling the scroll for the next event-loop turn (after layout recomputes the scrollbar's range — scrolling synchronously right after `setPlainText()` uses the stale, pre-layout range and silently no-ops). Scoped to only fire from the streaming path (`_on_render_event`), so browsing a previously-saved version is unaffected. Added `test_body_view_font_is_scaled_up_from_the_default` and `test_body_view_scrolls_to_end_as_content_streams` to `test/scene/gui/test_rendering_column.py`. Full suite: 388 passed. Lint clean.
+
+### Completed - 2026-08-22T15:33:05Z - John Hoff
+
+Delivered full rendering-column management in the GUI: version browsing with active marker, activate/delete (with sole/active guardrails), streamed Render/Regenerate with a Preview Prompt dialog and Cancel, guaranteed save-on-completion (including on cancel or stream error), a 50% larger body font, and auto-scroll while streaming. All Verification steps confirmed: pdm run lint clean, pdm run pytest passing (391 passed on this final check), manual smoke-testing done across several rounds including a real end-to-end generation against the configured LM Studio backend, and README's GUI section updated to describe the new capabilities. The developer confirms this has reached a good stable place.

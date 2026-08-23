@@ -3,9 +3,9 @@ archived: false
 created_by: John Hoff
 created_on: '2026-08-21T20:42:41Z'
 name: c006-gui-usability
-status: open
+status: completed
 updated_by: John Hoff
-updated_on: '2026-08-21T20:42:42Z'
+updated_on: '2026-08-23T22:25:50Z'
 ---
 
 # C006 — GUI Usability
@@ -44,3 +44,7 @@ identified, under the same "usability, not new functionality" constraint.
   `call_from_thread`.
 
 ## Log
+
+### Completed - 2026-08-23T22:25:50Z - John Hoff
+
+Delivered the campaign's first (and, for now, only) targeted gap: full rendering-column management in the GUI (e001-rendering-column-management) — version browsing with an active marker, activate/delete with sole/active guardrails, streamed Render/Regenerate with a "Preview Prompt" dialog and Cancel, guaranteed save-on-completion (including on cancel or stream error), a larger body font, and auto-scroll while streaming, all mirroring the proven RenderApp TUI workflow with no changes to scene.core/scene.data/scene.agent. Closing the campaign now, with the developer's direction that a fair amount of hands-on testing has been completed and the project is moving to an application-wide refactoring pass next. Further GUI-usability gaps identified later can open a new campaign when that work resumes.
