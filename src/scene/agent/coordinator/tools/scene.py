@@ -19,9 +19,11 @@ def _scene_dict(scene: Scene) -> dict[str, Any]:
         "story_id": scene.story_id,
         "position": scene.position,
         "heading": scene.heading,
-        "description": scene.description,
+        "brief": scene.brief,
         "required_actions": scene.required_actions,
-        "length": scene.length,
+        "pov_character_id": scene.pov_character_id,
+        "desired_outcome": scene.desired_outcome,
+        "target_length": scene.target_length,
     }
 
 
@@ -47,15 +49,20 @@ def build_scene_tools(state: CoordinatorState) -> list[Tool]:
         if story_id is None:
             return _NO_CURRENT_STORY
         with session_scope() as session:
-            scene = create_scene(
-                session,
-                story_id=story_id,
-                position=arguments["position"],
-                description=arguments["description"],
-                heading=arguments.get("heading"),
-                required_actions=arguments.get("required_actions"),
-                length=arguments.get("length"),
-            )
+            try:
+                scene = create_scene(
+                    session,
+                    story_id=story_id,
+                    position=arguments["position"],
+                    brief=arguments["brief"],
+                    heading=arguments.get("heading"),
+                    required_actions=arguments.get("required_actions"),
+                    target_length=arguments.get("target_length"),
+                    desired_outcome=arguments.get("desired_outcome"),
+                    pov_character_id=arguments.get("pov_character_id"),
+                )
+            except ValueError as error:
+                return {"error": str(error)}
             return _scene_dict(scene)
 
     def get_scene_handler(arguments: dict[str, Any]) -> Any:
@@ -81,15 +88,20 @@ def build_scene_tools(state: CoordinatorState) -> list[Tool]:
         if scene_id is None:
             return _SCENE_ID_REQUIRED
         with session_scope() as session:
-            scene = update_scene(
-                session,
-                scene_id,
-                position=arguments.get("position"),
-                heading=arguments.get("heading"),
-                description=arguments.get("description"),
-                required_actions=arguments.get("required_actions"),
-                length=arguments.get("length"),
-            )
+            try:
+                scene = update_scene(
+                    session,
+                    scene_id,
+                    position=arguments.get("position"),
+                    heading=arguments.get("heading"),
+                    brief=arguments.get("brief"),
+                    required_actions=arguments.get("required_actions"),
+                    target_length=arguments.get("target_length"),
+                    desired_outcome=arguments.get("desired_outcome"),
+                    pov_character_id=arguments.get("pov_character_id"),
+                )
+            except ValueError as error:
+                return {"error": str(error)}
             if scene is None:
                 return _not_found(scene_id)
             return _scene_dict(scene)
@@ -114,7 +126,7 @@ def build_scene_tools(state: CoordinatorState) -> list[Tool]:
         "description": "The scene's order within the story, zero-based.",
     }
     heading_property = {"type": "string", "description": "A short label for the scene."}
-    description_property = {
+    brief_property = {
         "type": "string",
         "description": "The scene's setting, characters, goals, and constraints.",
     }
@@ -122,7 +134,15 @@ def build_scene_tools(state: CoordinatorState) -> list[Tool]:
         "type": "string",
         "description": "Plot beats or actions that must occur during the scene.",
     }
-    length_property = {"type": "string", "description": "Guidance on the scene's target length."}
+    target_length_property = {"type": "string", "description": "Guidance on the scene's target length."}
+    desired_outcome_property = {
+        "type": "string",
+        "description": "The desired state, decision, revelation, or complication by the end of the scene.",
+    }
+    pov_character_id_property = {
+        "type": "integer",
+        "description": "The character whose point of view governs the scene. Must belong to the same story.",
+    }
 
     return [
         Tool(
@@ -138,11 +158,13 @@ def build_scene_tools(state: CoordinatorState) -> list[Tool]:
                             "story_id": story_id_property,
                             "position": position_property,
                             "heading": heading_property,
-                            "description": description_property,
+                            "brief": brief_property,
                             "required_actions": required_actions_property,
-                            "length": length_property,
+                            "target_length": target_length_property,
+                            "desired_outcome": desired_outcome_property,
+                            "pov_character_id": pov_character_id_property,
                         },
-                        "required": ["position", "description"],
+                        "required": ["position", "brief"],
                     },
                 },
             },
@@ -154,7 +176,10 @@ def build_scene_tools(state: CoordinatorState) -> list[Tool]:
                 "type": "function",
                 "function": {
                     "name": "get_scene",
-                    "description": "Get a scene's current position, heading, description, required actions, and length.",
+                    "description": (
+                        "Get a scene's current position, heading, brief, required actions, POV character, "
+                        "desired outcome, and target length."
+                    ),
                     "parameters": {
                         "type": "object",
                         "properties": {"scene_id": scene_id_property},
@@ -183,8 +208,8 @@ def build_scene_tools(state: CoordinatorState) -> list[Tool]:
                 "function": {
                     "name": "update_scene",
                     "description": (
-                        "Update a scene's position, heading, description, required actions, and/or length. "
-                        "Omitted fields are unchanged."
+                        "Update a scene's position, heading, brief, required actions, POV character, desired "
+                        "outcome, and/or target length. Omitted fields are unchanged."
                     ),
                     "parameters": {
                         "type": "object",
@@ -192,9 +217,11 @@ def build_scene_tools(state: CoordinatorState) -> list[Tool]:
                             "scene_id": scene_id_property,
                             "position": position_property,
                             "heading": heading_property,
-                            "description": description_property,
+                            "brief": brief_property,
                             "required_actions": required_actions_property,
-                            "length": length_property,
+                            "target_length": target_length_property,
+                            "desired_outcome": desired_outcome_property,
+                            "pov_character_id": pov_character_id_property,
                         },
                         "required": ["scene_id"],
                     },

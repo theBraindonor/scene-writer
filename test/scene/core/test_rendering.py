@@ -25,8 +25,8 @@ def session():
 
 @pytest.fixture
 def scene_id(session):
-    story = create_story(session, title="Title", scenario="Scenario")
-    scene = create_scene(session, story_id=story.id, position=0, description="A description")
+    story = create_story(session, title="Title", story_brief="Story brief")
+    scene = create_scene(session, story_id=story.id, position=0, brief="A brief")
     return scene.id
 
 

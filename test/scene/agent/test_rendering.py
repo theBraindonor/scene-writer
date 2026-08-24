@@ -18,7 +18,7 @@ from scene.core.rendering import create_rendering, set_active_rendering
 from scene.core.scene import create_scene
 from scene.core.scene_character import assign_character
 from scene.core.scene_location import assign_location
-from scene.core.story import create_story
+from scene.core.story import create_story, update_story
 from scene.data.database import get_engine, get_session_factory, init_db
 
 
@@ -35,7 +35,9 @@ def session():
 
 @pytest.fixture
 def story_id(session):
-    story = create_story(session, title="Title", scenario="A grand scenario", style_guidance="Terse, present tense")
+    story = create_story(
+        session, title="Title", story_brief="A grand story brief", style_guidance="Terse, present tense"
+    )
     return story.id
 
 
@@ -50,8 +52,8 @@ def test_find_next_unrendered_scene_returns_none_when_no_scenes(session, story_i
 
 
 def test_find_next_unrendered_scene_returns_lowest_position_without_active_rendering(session, story_id):
-    first = create_scene(session, story_id=story_id, position=0, description="First")
-    second = create_scene(session, story_id=story_id, position=1, description="Second")
+    first = create_scene(session, story_id=story_id, position=0, brief="First")
+    second = create_scene(session, story_id=story_id, position=1, brief="Second")
     _activate(session, first.id, "First scene prose.")
 
     result = find_next_unrendered_scene(session, story_id)
@@ -60,24 +62,24 @@ def test_find_next_unrendered_scene_returns_lowest_position_without_active_rende
 
 
 def test_find_next_unrendered_scene_returns_none_when_all_rendered(session, story_id):
-    scene = create_scene(session, story_id=story_id, position=0, description="First")
+    scene = create_scene(session, story_id=story_id, position=0, brief="First")
     _activate(session, scene.id, "First scene prose.")
 
     assert find_next_unrendered_scene(session, story_id) is None
 
 
-def test_build_render_messages_system_message_has_scenario_and_style_guidance(session, story_id):
-    scene = create_scene(session, story_id=story_id, position=0, description="First")
+def test_build_render_messages_system_message_has_story_brief_and_style_guidance(session, story_id):
+    scene = create_scene(session, story_id=story_id, position=0, brief="First")
 
     messages = build_render_messages(session, story_id, scene.id)
 
     assert messages[0]["role"] == "system"
-    assert "A grand scenario" in messages[0]["content"]
+    assert "A grand story brief" in messages[0]["content"]
     assert "Terse, present tense" in messages[0]["content"]
 
 
 def test_build_render_messages_no_prior_scenes_has_single_user_message(session, story_id):
-    scene = create_scene(session, story_id=story_id, position=0, description="First", heading="Arrival")
+    scene = create_scene(session, story_id=story_id, position=0, brief="First", heading="Arrival")
 
     messages = build_render_messages(session, story_id, scene.id)
 
@@ -87,8 +89,8 @@ def test_build_render_messages_no_prior_scenes_has_single_user_message(session, 
 
 
 def test_build_render_messages_includes_prior_scene_detail_and_active_rendering(session, story_id):
-    first = create_scene(session, story_id=story_id, position=0, description="First", heading="Arrival")
-    second = create_scene(session, story_id=story_id, position=1, description="Second", heading="Departure")
+    first = create_scene(session, story_id=story_id, position=0, brief="First", heading="Arrival")
+    second = create_scene(session, story_id=story_id, position=1, brief="Second", heading="Departure")
     _activate(session, first.id, "The prose of the first scene.")
 
     messages = build_render_messages(session, story_id, second.id)
@@ -103,7 +105,7 @@ def test_build_render_messages_includes_prior_scene_detail_and_active_rendering(
 
 
 def test_build_render_messages_scene_message_lists_character_and_location_names_only(session, story_id):
-    scene = create_scene(session, story_id=story_id, position=0, description="First")
+    scene = create_scene(session, story_id=story_id, position=0, brief="First")
     alex = create_character(session, story_id=story_id, name="Alex", description="A wanderer", motive="Find home")
     sam = create_character(session, story_id=story_id, name="Sam")
     tavern = create_location(session, story_id=story_id, name="The Tavern", description="A cozy inn")
@@ -125,10 +127,10 @@ def test_build_render_messages_scene_message_sections_appear_in_requested_order(
         session,
         story_id=story_id,
         position=0,
-        description="First",
+        brief="First",
         heading="Arrival",
         required_actions="Knock on the door",
-        length="500 words",
+        target_length="500 words",
     )
     character = create_character(session, story_id=story_id, name="Alex")
     location = create_location(session, story_id=story_id, name="The Tavern")
@@ -140,16 +142,50 @@ def test_build_render_messages_scene_message_sections_appear_in_requested_order(
 
     assert scene_content.startswith("# Scene: Arrival")
     title_index = scene_content.index("# Scene: Arrival")
-    length_index = scene_content.index("## Length")
-    description_index = scene_content.index("## Description")
+    target_length_index = scene_content.index("## Target Length")
+    brief_index = scene_content.index("## Brief")
     locations_index = scene_content.index("## Locations")
     characters_index = scene_content.index("## Characters")
     required_elements_index = scene_content.index("## Required Elements")
-    assert title_index < length_index < description_index < locations_index < characters_index < required_elements_index
+    assert (
+        title_index
+        < target_length_index
+        < brief_index
+        < locations_index
+        < characters_index
+        < required_elements_index
+    )
+
+
+def test_build_render_messages_scene_message_includes_desired_outcome_and_pov(session, story_id):
+    character = create_character(session, story_id=story_id, name="Mara")
+    scene = create_scene(
+        session,
+        story_id=story_id,
+        position=0,
+        brief="First",
+        desired_outcome="Mara finds the map",
+        pov_character_id=character.id,
+    )
+
+    messages = build_render_messages(session, story_id, scene.id)
+    scene_content = messages[-1]["content"]
+
+    assert "## Desired Outcome\n\nMara finds the map" in scene_content
+    assert "## Point of View\n\nWrite from Mara's point of view." in scene_content
+
+
+def test_build_render_messages_system_message_has_generation_guideance(session, story_id):
+    update_story(session, story_id, generation_guideance="No profanity")
+    scene = create_scene(session, story_id=story_id, position=0, brief="First")
+
+    messages = build_render_messages(session, story_id, scene.id)
+
+    assert "## Generation Guidance\n\nNo profanity" in messages[0]["content"]
 
 
 def test_build_render_messages_system_message_has_full_character_and_location_details(session, story_id):
-    scene = create_scene(session, story_id=story_id, position=0, description="First")
+    scene = create_scene(session, story_id=story_id, position=0, brief="First")
     character = create_character(session, story_id=story_id, name="Alex", description="A wanderer", motive="Find home")
     location = create_location(session, story_id=story_id, name="The Tavern", description="A cozy inn")
     assign_character(session, scene.id, character.id)
@@ -165,7 +201,7 @@ def test_build_render_messages_system_message_has_full_character_and_location_de
 
 
 def test_build_render_messages_system_roster_includes_unassigned_characters_and_locations(session, story_id):
-    scene = create_scene(session, story_id=story_id, position=0, description="First")
+    scene = create_scene(session, story_id=story_id, position=0, brief="First")
     create_character(session, story_id=story_id, name="Unassigned Character")
     create_location(session, story_id=story_id, name="Unassigned Location")
 
@@ -177,8 +213,8 @@ def test_build_render_messages_system_roster_includes_unassigned_characters_and_
 
 
 def test_build_render_messages_raises_when_prior_scene_has_no_active_rendering(session, story_id):
-    create_scene(session, story_id=story_id, position=0, description="First")
-    second = create_scene(session, story_id=story_id, position=1, description="Second")
+    create_scene(session, story_id=story_id, position=0, brief="First")
+    second = create_scene(session, story_id=story_id, position=1, brief="Second")
 
     with pytest.raises(ValueError, match="no active rendering"):
         build_render_messages(session, story_id, second.id)

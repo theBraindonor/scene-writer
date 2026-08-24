@@ -17,14 +17,14 @@ def isolated_database(tmp_path, monkeypatch):
 @pytest.fixture
 def seeded_story_id():
     with session_scope() as session:
-        story = create_story(session, title="Seed Story", scenario="A seeded scenario")
+        story = create_story(session, title="Seed Story", story_brief="A seeded story brief")
         return story.id
 
 
 @pytest.fixture
 def other_story_id():
     with session_scope() as session:
-        story = create_story(session, title="Other Story", scenario="Another scenario")
+        story = create_story(session, title="Other Story", story_brief="Another story brief")
         return story.id
 
 
@@ -38,7 +38,7 @@ def seeded_location_id(seeded_story_id):
 @pytest.fixture
 def seeded_scene_id(seeded_story_id):
     with session_scope() as session:
-        scene = create_scene(session, story_id=seeded_story_id, position=0, description="A first scene")
+        scene = create_scene(session, story_id=seeded_story_id, position=0, brief="A first scene")
         return scene.id
 
 

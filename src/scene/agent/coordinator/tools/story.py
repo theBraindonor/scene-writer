@@ -18,8 +18,9 @@ def _story_dict(story: Story) -> dict[str, Any]:
     return {
         "id": story.id,
         "title": story.title,
-        "scenario": story.scenario,
+        "story_brief": story.story_brief,
         "style_guidance": story.style_guidance,
+        "generation_guideance": story.generation_guideance,
         "is_archived": bool(story.is_archived),
     }
 
@@ -44,8 +45,9 @@ def build_story_tools(state: CoordinatorState) -> list[Tool]:
             story = create_story(
                 session,
                 title=arguments["title"],
-                scenario=arguments["scenario"],
+                story_brief=arguments["story_brief"],
                 style_guidance=arguments.get("style_guidance"),
+                generation_guideance=arguments.get("generation_guideance"),
             )
             state.current_story_id = story.id
             return _story_dict(story)
@@ -75,8 +77,9 @@ def build_story_tools(state: CoordinatorState) -> list[Tool]:
                 session,
                 story_id,
                 title=arguments.get("title"),
-                scenario=arguments.get("scenario"),
+                story_brief=arguments.get("story_brief"),
                 style_guidance=arguments.get("style_guidance"),
+                generation_guideance=arguments.get("generation_guideance"),
             )
             if story is None:
                 return _not_found(story_id)
@@ -109,6 +112,18 @@ def build_story_tools(state: CoordinatorState) -> list[Tool]:
         "type": "integer",
         "description": "The story's id. Defaults to the story this conversation is about when omitted.",
     }
+    story_brief_property = {
+        "type": "string",
+        "description": "The story's overall situation, premise, and expected major events.",
+    }
+    style_guidance_property = {
+        "type": "string",
+        "description": "Voice, tense, point of view, tone, pacing, and similar direction.",
+    }
+    generation_guideance_property = {
+        "type": "string",
+        "description": "Generation instructions beyond style, such as content boundaries or recurring prose rules.",
+    }
 
     return [
         Tool(
@@ -122,16 +137,11 @@ def build_story_tools(state: CoordinatorState) -> list[Tool]:
                         "type": "object",
                         "properties": {
                             "title": {"type": "string", "description": "The story's working title."},
-                            "scenario": {
-                                "type": "string",
-                                "description": "The story's overall situation, premise, and expected major events.",
-                            },
-                            "style_guidance": {
-                                "type": "string",
-                                "description": "Voice, tense, point of view, tone, pacing, and similar direction.",
-                            },
+                            "story_brief": story_brief_property,
+                            "style_guidance": style_guidance_property,
+                            "generation_guideance": generation_guideance_property,
                         },
-                        "required": ["title", "scenario"],
+                        "required": ["title", "story_brief"],
                     },
                 },
             },
@@ -143,7 +153,10 @@ def build_story_tools(state: CoordinatorState) -> list[Tool]:
                 "type": "function",
                 "function": {
                     "name": "get_story",
-                    "description": "Get a story's current title, scenario, style guidance, and archive status.",
+                    "description": (
+                        "Get a story's current title, story brief, style guidance, generation guidance, and "
+                        "archive status."
+                    ),
                     "parameters": {"type": "object", "properties": {"story_id": story_id_property}},
                 },
             },
@@ -175,20 +188,18 @@ def build_story_tools(state: CoordinatorState) -> list[Tool]:
                 "type": "function",
                 "function": {
                     "name": "update_story",
-                    "description": "Update a story's title, scenario, and/or style guidance. Omitted fields are unchanged.",
+                    "description": (
+                        "Update a story's title, story brief, style guidance, and/or generation guidance. "
+                        "Omitted fields are unchanged."
+                    ),
                     "parameters": {
                         "type": "object",
                         "properties": {
                             "story_id": story_id_property,
                             "title": {"type": "string", "description": "The story's working title."},
-                            "scenario": {
-                                "type": "string",
-                                "description": "The story's overall situation, premise, and expected major events.",
-                            },
-                            "style_guidance": {
-                                "type": "string",
-                                "description": "Voice, tense, point of view, tone, pacing, and similar direction.",
-                            },
+                            "story_brief": story_brief_property,
+                            "style_guidance": style_guidance_property,
+                            "generation_guideance": generation_guideance_property,
                         },
                     },
                 },

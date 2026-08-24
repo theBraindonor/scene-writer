@@ -83,7 +83,7 @@ def send(qtbot, window, text):
 
 def seed_story(title="A Story"):
     with session_scope() as session:
-        story = create_story(session, title=title, scenario="A scenario")
+        story = create_story(session, title=title, story_brief="A story brief")
         return story.id
 
 
@@ -230,7 +230,7 @@ def test_creating_story_via_header_updates_window(qtbot, monkeypatch):
 def test_selecting_scene_updates_rendering_column(qtbot):
     story_id = seed_story("A Story")
     with session_scope() as session:
-        scene = create_scene(session, story_id=story_id, position=0, description="Opening")
+        scene = create_scene(session, story_id=story_id, position=0, brief="Opening")
         rendering = create_rendering(session, scene_id=scene.id, body="Once upon a time.")
         set_active_rendering(session, rendering.id)
 
@@ -248,7 +248,7 @@ def test_switching_story_resets_rendering_column(qtbot):
     first_story_id = seed_story("First Story")
     second_story_id = seed_story("Second Story")
     with session_scope() as session:
-        scene = create_scene(session, story_id=first_story_id, position=0, description="Opening")
+        scene = create_scene(session, story_id=first_story_id, position=0, brief="Opening")
         rendering = create_rendering(session, scene_id=scene.id, body="Once upon a time.")
         set_active_rendering(session, rendering.id)
 
@@ -276,7 +276,7 @@ def test_chat_creating_story_updates_header_and_entity_column(qtbot, monkeypatch
 
     tool_call = FakeToolCallDelta(index=0, id="call_1", function=FakeFunctionDelta(name="create_story"))
     args = FakeToolCallDelta(
-        index=0, function=FakeFunctionDelta(arguments='{"title": "Agent Story", "scenario": "A scenario"}')
+        index=0, function=FakeFunctionDelta(arguments='{"title": "Agent Story", "story_brief": "A scenario"}')
     )
     script_stream(
         monkeypatch,
@@ -296,7 +296,7 @@ def test_chat_creating_story_updates_header_and_entity_column(qtbot, monkeypatch
 def test_chat_editing_scene_refreshes_entity_column(qtbot, monkeypatch):
     story_id = seed_story("A Story")
     with session_scope() as session:
-        create_scene(session, story_id=story_id, position=0, description="Original description")
+        create_scene(session, story_id=story_id, position=0, brief="Original brief")
 
     window = make_window(qtbot)
     select_story(window, story_id)
@@ -307,7 +307,7 @@ def test_chat_editing_scene_refreshes_entity_column(qtbot, monkeypatch):
     tool_call = FakeToolCallDelta(index=0, id="call_1", function=FakeFunctionDelta(name="update_scene"))
     args = FakeToolCallDelta(
         index=0,
-        function=FakeFunctionDelta(arguments=f'{{"scene_id": {scene_id}, "description": "Updated description"}}'),
+        function=FakeFunctionDelta(arguments=f'{{"scene_id": {scene_id}, "brief": "Updated brief"}}'),
     )
     script_stream(
         monkeypatch,
@@ -316,10 +316,10 @@ def test_chat_editing_scene_refreshes_entity_column(qtbot, monkeypatch):
             [make_chunk(content="Updated it!")],
         ],
     )
-    send(qtbot, window, "please update the scene's description")
+    send(qtbot, window, "please update the scene's brief")
 
     with session_scope() as session:
-        assert list_scenes(session, story_id)[0].description == "Updated description"
+        assert list_scenes(session, story_id)[0].brief == "Updated brief"
     assert window.entity_column.scenes.list_widget.count() == 1
 
 

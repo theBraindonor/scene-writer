@@ -28,12 +28,12 @@ class NewStoryDialog(QDialog):
         self.setWindowTitle("New Story")
 
         self.title_edit = QLineEdit()
-        self.scenario_edit = QPlainTextEdit()
+        self.story_brief_edit = QPlainTextEdit()
         self.style_guidance_edit = QPlainTextEdit()
 
         form = QFormLayout()
         form.addRow("Title", self.title_edit)
-        form.addRow("Scenario", self.scenario_edit)
+        form.addRow("Story Brief", self.story_brief_edit)
         form.addRow("Style Guidance", self.style_guidance_edit)
 
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
@@ -46,9 +46,9 @@ class NewStoryDialog(QDialog):
 
     def values(self) -> tuple[str, str, str | None]:
         title = self.title_edit.text().strip()
-        scenario = self.scenario_edit.toPlainText().strip()
+        story_brief = self.story_brief_edit.toPlainText().strip()
         style_guidance = self.style_guidance_edit.toPlainText().strip() or None
-        return title, scenario, style_guidance
+        return title, story_brief, style_guidance
 
 
 class StoryPickerDialog(QDialog):
@@ -142,9 +142,11 @@ class StoryHeader(QWidget):
         values = self._prompt_new_story()
         if values is None:
             return
-        title, scenario, style_guidance = values
+        title, story_brief, style_guidance = values
         with session_scope() as session:
-            story = create_story_record(session, title=title, scenario=scenario, style_guidance=style_guidance)
+            story = create_story_record(
+                session, title=title, story_brief=story_brief, style_guidance=style_guidance
+            )
             story_id = story.id
         self.story_selected.emit(story_id)
 

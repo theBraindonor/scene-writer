@@ -15,7 +15,7 @@ def isolated_database(tmp_path, monkeypatch):
 
 def seed_story(title="A Story"):
     with session_scope() as session:
-        story = create_story(session, title=title, scenario="A scenario")
+        story = create_story(session, title=title, story_brief="A story brief")
         return story.id
 
 
@@ -53,7 +53,7 @@ def test_new_story_creates_and_selects(qtbot, monkeypatch):
     header = StoryHeader()
     qtbot.addWidget(header)
 
-    monkeypatch.setattr(header, "_prompt_new_story", lambda: ("New Story", "A scenario", None))
+    monkeypatch.setattr(header, "_prompt_new_story", lambda: ("New Story", "A story brief", None))
 
     with qtbot.waitSignal(header.story_selected, timeout=1000) as blocker:
         qtbot.mouseClick(header.new_story_button, Qt.MouseButton.LeftButton)

@@ -14,7 +14,7 @@ def isolated_database(tmp_path, monkeypatch):
 
 def seed_story():
     with session_scope() as session:
-        story = create_story(session, title="A Story", scenario="A scenario")
+        story = create_story(session, title="A Story", story_brief="A story brief")
         return story.id
 
 

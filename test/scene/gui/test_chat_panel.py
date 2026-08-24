@@ -108,7 +108,7 @@ def test_sending_message_streams_scripted_response(qtbot, monkeypatch):
 def test_reasoning_and_tool_calls_are_shown(qtbot, monkeypatch):
     tool_call = FakeToolCallDelta(index=0, id="call_1", function=FakeFunctionDelta(name="create_story"))
     args = FakeToolCallDelta(
-        index=0, function=FakeFunctionDelta(arguments='{"title": "New Story", "scenario": "A scenario"}')
+        index=0, function=FakeFunctionDelta(arguments='{"title": "New Story", "story_brief": "A scenario"}')
     )
     script_stream(
         monkeypatch,

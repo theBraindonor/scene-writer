@@ -3,6 +3,7 @@ import pytest
 import scene.data.database as database_module
 from scene.agent.coordinator.state import CoordinatorState
 from scene.agent.coordinator.tools.scene import build_scene_tools
+from scene.core.character import create_character
 from scene.core.scene import create_scene
 from scene.core.story import create_story
 from scene.data.database import session_scope
@@ -16,15 +17,22 @@ def isolated_database(tmp_path, monkeypatch):
 @pytest.fixture
 def seeded_story_id():
     with session_scope() as session:
-        story = create_story(session, title="Seed Story", scenario="A seeded scenario")
+        story = create_story(session, title="Seed Story", story_brief="A seeded story brief")
         return story.id
 
 
 @pytest.fixture
 def seeded_scene_id(seeded_story_id):
     with session_scope() as session:
-        scene = create_scene(session, story_id=seeded_story_id, position=0, description="A first scene")
+        scene = create_scene(session, story_id=seeded_story_id, position=0, brief="A first scene")
         return scene.id
+
+
+@pytest.fixture
+def seeded_character_id(seeded_story_id):
+    with session_scope() as session:
+        character = create_character(session, story_id=seeded_story_id, name="Ada")
+        return character.id
 
 
 def tools_by_name(state):
@@ -40,12 +48,12 @@ def test_create_scene_uses_explicit_story_id(seeded_story_id):
     tools = tools_by_name(state)
 
     result = tools["create_scene"].handler(
-        {"story_id": seeded_story_id, "position": 0, "description": "A new scene", "heading": "Opening"}
+        {"story_id": seeded_story_id, "position": 0, "brief": "A new scene", "heading": "Opening"}
     )
 
     assert result["story_id"] == seeded_story_id
     assert result["position"] == 0
-    assert result["description"] == "A new scene"
+    assert result["brief"] == "A new scene"
     assert result["heading"] == "Opening"
 
 
@@ -53,7 +61,7 @@ def test_create_scene_defaults_to_current_story(seeded_story_id):
     state = CoordinatorState(current_story_id=seeded_story_id)
     tools = tools_by_name(state)
 
-    result = tools["create_scene"].handler({"position": 0, "description": "A new scene"})
+    result = tools["create_scene"].handler({"position": 0, "brief": "A new scene"})
 
     assert result["story_id"] == seeded_story_id
 
@@ -62,9 +70,36 @@ def test_create_scene_with_no_current_story_returns_clear_error():
     state = CoordinatorState()
     tools = tools_by_name(state)
 
-    result = tools["create_scene"].handler({"position": 0, "description": "A new scene"})
+    result = tools["create_scene"].handler({"position": 0, "brief": "A new scene"})
 
     assert "No current story" in result["error"]
+
+
+def test_create_scene_with_pov_character(seeded_story_id, seeded_character_id):
+    state = CoordinatorState(current_story_id=seeded_story_id)
+    tools = tools_by_name(state)
+
+    result = tools["create_scene"].handler(
+        {"position": 0, "brief": "A new scene", "pov_character_id": seeded_character_id}
+    )
+
+    assert result["pov_character_id"] == seeded_character_id
+
+
+def test_create_scene_with_cross_story_pov_character_returns_error(seeded_story_id):
+    with session_scope() as session:
+        other_story = create_story(session, title="Other", story_brief="Other story brief")
+        other_character = create_character(session, story_id=other_story.id, name="Bea")
+        other_character_id = other_character.id
+
+    state = CoordinatorState(current_story_id=seeded_story_id)
+    tools = tools_by_name(state)
+
+    result = tools["create_scene"].handler(
+        {"position": 0, "brief": "A new scene", "pov_character_id": other_character_id}
+    )
+
+    assert "does not belong to story" in result["error"]
 
 
 def test_get_scene_returns_scene(seeded_scene_id):
@@ -74,7 +109,7 @@ def test_get_scene_returns_scene(seeded_scene_id):
     result = tools["get_scene"].handler({"scene_id": seeded_scene_id})
 
     assert result["id"] == seeded_scene_id
-    assert result["description"] == "A first scene"
+    assert result["brief"] == "A first scene"
 
 
 def test_get_scene_missing_scene_id_returns_clear_error():
@@ -129,7 +164,7 @@ def test_update_scene_changes_only_given_fields(seeded_scene_id):
     result = tools["update_scene"].handler({"scene_id": seeded_scene_id, "heading": "Renamed"})
 
     assert result["heading"] == "Renamed"
-    assert result["description"] == "A first scene"
+    assert result["brief"] == "A first scene"
 
 
 def test_update_scene_missing_scene_id_returns_clear_error():
@@ -148,6 +183,20 @@ def test_update_scene_not_found_returns_error():
     result = tools["update_scene"].handler({"scene_id": 999, "heading": "Renamed"})
 
     assert result == {"error": "Scene 999 not found"}
+
+
+def test_update_scene_with_cross_story_pov_character_returns_error(seeded_scene_id, seeded_story_id):
+    with session_scope() as session:
+        other_story = create_story(session, title="Other", story_brief="Other story brief")
+        other_character = create_character(session, story_id=other_story.id, name="Bea")
+        other_character_id = other_character.id
+
+    state = CoordinatorState()
+    tools = tools_by_name(state)
+
+    result = tools["update_scene"].handler({"scene_id": seeded_scene_id, "pov_character_id": other_character_id})
+
+    assert "does not belong to story" in result["error"]
 
 
 def test_delete_scene_removes_scene(seeded_scene_id):

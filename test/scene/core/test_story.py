@@ -24,12 +24,19 @@ def session():
 
 
 def test_create_and_get_story(session):
-    story = create_story(session, title="Title", scenario="Scenario")
+    story = create_story(session, title="Title", story_brief="Story brief")
 
     fetched = get_story(session, story.id)
 
     assert fetched is not None
     assert fetched.title == "Title"
+    assert fetched.generation_guideance is None
+
+
+def test_create_story_with_generation_guideance(session):
+    story = create_story(session, title="Title", story_brief="Story brief", generation_guideance="No profanity")
+
+    assert story.generation_guideance == "No profanity"
 
 
 def test_get_missing_story_returns_none(session):
@@ -37,8 +44,8 @@ def test_get_missing_story_returns_none(session):
 
 
 def test_list_stories_excludes_archived_by_default(session):
-    active = create_story(session, title="Active", scenario="Scenario")
-    archived = create_story(session, title="Archived", scenario="Scenario")
+    active = create_story(session, title="Active", story_brief="Story brief")
+    archived = create_story(session, title="Archived", story_brief="Story brief")
     archive_story(session, archived.id)
 
     stories = list_stories(session)
@@ -47,8 +54,8 @@ def test_list_stories_excludes_archived_by_default(session):
 
 
 def test_list_stories_include_archived(session):
-    active = create_story(session, title="Active", scenario="Scenario")
-    archived = create_story(session, title="Archived", scenario="Scenario")
+    active = create_story(session, title="Active", story_brief="Story brief")
+    archived = create_story(session, title="Archived", story_brief="Story brief")
     archive_story(session, archived.id)
 
     stories = list_stories(session, include_archived=True)
@@ -57,22 +64,30 @@ def test_list_stories_include_archived(session):
 
 
 def test_update_story(session):
-    story = create_story(session, title="Title", scenario="Scenario")
+    story = create_story(session, title="Title", story_brief="Story brief")
 
     updated = update_story(session, story.id, title="New Title")
 
     assert updated.title == "New Title"
-    assert updated.scenario == "Scenario"
+    assert updated.story_brief == "Story brief"
 
 
-def test_update_story_scenario_and_style_guidance(session):
-    story = create_story(session, title="Title", scenario="Scenario")
+def test_update_story_brief_and_style_guidance(session):
+    story = create_story(session, title="Title", story_brief="Story brief")
 
-    updated = update_story(session, story.id, scenario="New Scenario", style_guidance="New Style")
+    updated = update_story(session, story.id, story_brief="New brief", style_guidance="New Style")
 
     assert updated.title == "Title"
-    assert updated.scenario == "New Scenario"
+    assert updated.story_brief == "New brief"
     assert updated.style_guidance == "New Style"
+
+
+def test_update_story_generation_guideance(session):
+    story = create_story(session, title="Title", story_brief="Story brief")
+
+    updated = update_story(session, story.id, generation_guideance="No profanity")
+
+    assert updated.generation_guideance == "No profanity"
 
 
 def test_update_missing_story_returns_none(session):
@@ -80,7 +95,7 @@ def test_update_missing_story_returns_none(session):
 
 
 def test_archive_and_unarchive_story(session):
-    story = create_story(session, title="Title", scenario="Scenario")
+    story = create_story(session, title="Title", story_brief="Story brief")
 
     archived = archive_story(session, story.id)
     assert archived.is_archived == 1

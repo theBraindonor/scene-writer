@@ -29,6 +29,26 @@ def test_get_story():
 
     assert result.exit_code == 0
     assert "title: My Story" in result.stdout
+    assert "story_brief: A scenario" in result.stdout
+
+
+def test_create_and_get_story_with_generation_guideance():
+    runner.invoke(app, ["story", "create", "My Story", "A scenario", "--generation-guideance", "No profanity"])
+
+    result = runner.invoke(app, ["story", "get", "1"])
+
+    assert result.exit_code == 0
+    assert "generation_guideance: No profanity" in result.stdout
+
+
+def test_update_story_generation_guideance():
+    runner.invoke(app, ["story", "create", "My Story", "A scenario"])
+
+    result = runner.invoke(app, ["story", "update", "1", "--generation-guideance", "No profanity"])
+
+    assert result.exit_code == 0
+    result = runner.invoke(app, ["story", "get", "1"])
+    assert "generation_guideance: No profanity" in result.stdout
 
 
 def test_get_missing_story():
@@ -101,7 +121,7 @@ def test_get_scene():
     result = runner.invoke(app, ["scene", "get", "1"])
 
     assert result.exit_code == 0
-    assert "description: The hero arrives." in result.stdout
+    assert "brief: The hero arrives." in result.stdout
 
 
 def test_get_missing_scene():
@@ -115,38 +135,84 @@ def test_update_scene():
     runner.invoke(app, ["story", "create", "My Story", "A scenario"])
     runner.invoke(app, ["scene", "create", "1", "0", "The hero arrives."])
 
-    result = runner.invoke(app, ["scene", "update", "1", "--description", "The hero departs."])
+    result = runner.invoke(app, ["scene", "update", "1", "--brief", "The hero departs."])
 
     assert result.exit_code == 0
     result = runner.invoke(app, ["scene", "get", "1"])
-    assert "description: The hero departs." in result.stdout
+    assert "brief: The hero departs." in result.stdout
 
 
-def test_create_and_get_scene_with_length():
+def test_create_and_get_scene_with_target_length():
     runner.invoke(app, ["story", "create", "My Story", "A scenario"])
 
     result = runner.invoke(
-        app, ["scene", "create", "1", "0", "The hero arrives.", "--length", "about 800 characters"]
+        app, ["scene", "create", "1", "0", "The hero arrives.", "--target-length", "about 800 characters"]
     )
     assert result.exit_code == 0
 
     result = runner.invoke(app, ["scene", "get", "1"])
-    assert "length: about 800 characters" in result.stdout
+    assert "target_length: about 800 characters" in result.stdout
 
 
-def test_update_scene_length():
+def test_update_scene_target_length():
     runner.invoke(app, ["story", "create", "My Story", "A scenario"])
     runner.invoke(app, ["scene", "create", "1", "0", "The hero arrives."])
 
-    result = runner.invoke(app, ["scene", "update", "1", "--length", "short"])
+    result = runner.invoke(app, ["scene", "update", "1", "--target-length", "short"])
 
     assert result.exit_code == 0
     result = runner.invoke(app, ["scene", "get", "1"])
-    assert "length: short" in result.stdout
+    assert "target_length: short" in result.stdout
+
+
+def test_create_and_get_scene_with_desired_outcome():
+    runner.invoke(app, ["story", "create", "My Story", "A scenario"])
+
+    result = runner.invoke(
+        app, ["scene", "create", "1", "0", "The hero arrives.", "--desired-outcome", "The hero finds the map"]
+    )
+    assert result.exit_code == 0
+
+    result = runner.invoke(app, ["scene", "get", "1"])
+    assert "desired_outcome: The hero finds the map" in result.stdout
+
+
+def test_create_and_get_scene_with_pov_character():
+    runner.invoke(app, ["story", "create", "My Story", "A scenario"])
+    runner.invoke(app, ["character", "create", "1", "Ada"])
+
+    result = runner.invoke(app, ["scene", "create", "1", "0", "The hero arrives.", "--pov-character-id", "1"])
+    assert result.exit_code == 0
+
+    result = runner.invoke(app, ["scene", "get", "1"])
+    assert "pov_character_id: 1" in result.stdout
+
+
+def test_create_scene_with_cross_story_pov_character():
+    runner.invoke(app, ["story", "create", "Story One", "A scenario"])
+    runner.invoke(app, ["story", "create", "Story Two", "Another scenario"])
+    runner.invoke(app, ["character", "create", "2", "Bea"])
+
+    result = runner.invoke(app, ["scene", "create", "1", "0", "The hero arrives.", "--pov-character-id", "1"])
+
+    assert result.exit_code == 1
+    assert "does not belong to story" in result.stdout
+
+
+def test_update_scene_with_cross_story_pov_character():
+    runner.invoke(app, ["story", "create", "Story One", "A scenario"])
+    runner.invoke(app, ["scene", "create", "1", "0", "The hero arrives."])
+    runner.invoke(app, ["story", "create", "Story Two", "Another scenario"])
+    runner.invoke(app, ["character", "create", "2", "Bea"])
+
+    result = runner.invoke(app, ["scene", "update", "1", "--pov-character-id", "1"])
+
+    assert result.exit_code == 1
+    assert "does not belong to story" in result.stdout
 
 
 def test_update_missing_scene():
-    result = runner.invoke(app, ["scene", "update", "999", "--description", "New"])
+    result = runner.invoke(app, ["scene", "update", "999", "--brief", "New"])
 
     assert result.exit_code == 1
     assert "not found" in result.stdout

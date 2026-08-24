@@ -19,7 +19,7 @@ def session_factory():
 @pytest.fixture
 def story_id(session_factory):
     with session_factory() as session:
-        story = Story(title="A Title", scenario="A scenario")
+        story = Story(title="A Title", story_brief="A story brief")
         session.add(story)
         session.commit()
         return story.id

@@ -15,7 +15,7 @@ def isolated_database(tmp_path, monkeypatch):
 @pytest.fixture
 def seeded_story_id():
     with session_scope() as session:
-        story = create_story(session, title="Seed Story", scenario="A seeded scenario")
+        story = create_story(session, title="Seed Story", story_brief="A seeded story brief")
         return story.id
 
 
@@ -27,12 +27,23 @@ def test_create_story_returns_new_story_and_becomes_current():
     state = CoordinatorState()
     tools = tools_by_name(state)
 
-    result = tools["create_story"].handler({"title": "New Story", "scenario": "A new scenario"})
+    result = tools["create_story"].handler({"title": "New Story", "story_brief": "A new story brief"})
 
     assert result["title"] == "New Story"
-    assert result["scenario"] == "A new scenario"
+    assert result["story_brief"] == "A new story brief"
     assert result["is_archived"] is False
     assert state.current_story_id == result["id"]
+
+
+def test_create_story_with_generation_guideance():
+    state = CoordinatorState()
+    tools = tools_by_name(state)
+
+    result = tools["create_story"].handler(
+        {"title": "New Story", "story_brief": "A new story brief", "generation_guideance": "No profanity"}
+    )
+
+    assert result["generation_guideance"] == "No profanity"
 
 
 def test_get_story_uses_current_story_id_when_omitted(seeded_story_id):
@@ -111,10 +122,10 @@ def test_update_story_changes_only_given_fields_using_current_story(seeded_story
     state = CoordinatorState(current_story_id=seeded_story_id)
     tools = tools_by_name(state)
 
-    result = tools["update_story"].handler({"scenario": "An updated scenario"})
+    result = tools["update_story"].handler({"story_brief": "An updated story brief"})
 
     assert result["title"] == "Seed Story"
-    assert result["scenario"] == "An updated scenario"
+    assert result["story_brief"] == "An updated story brief"
 
 
 def test_update_story_not_found_returns_error():
@@ -184,7 +195,7 @@ def test_unarchive_story_with_no_current_story_returns_clear_error():
 
 def test_switching_between_two_stories_updates_current(seeded_story_id):
     with session_scope() as session:
-        other = create_story(session, title="Other Story", scenario="Another scenario")
+        other = create_story(session, title="Other Story", story_brief="Another story brief")
         other_id = other.id
 
     state = CoordinatorState(current_story_id=seeded_story_id)

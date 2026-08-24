@@ -21,10 +21,10 @@ def session_factory():
 @pytest.fixture
 def scene_and_location_id(session_factory):
     with session_factory() as session:
-        story = Story(title="A Title", scenario="A scenario")
+        story = Story(title="A Title", story_brief="A story brief")
         session.add(story)
         session.commit()
-        scene = Scene(story_id=story.id, position=0, description="A description")
+        scene = Scene(story_id=story.id, position=0, brief="A brief")
         location = Location(story_id=story.id, name="Castle")
         session.add_all([scene, location])
         session.commit()

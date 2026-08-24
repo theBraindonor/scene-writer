@@ -19,7 +19,7 @@ def isolated_database(tmp_path, monkeypatch):
 
 def seed_story():
     with session_scope() as session:
-        story = create_story(session, title="A Story", scenario="A scenario")
+        story = create_story(session, title="A Story", story_brief="A story brief")
         return story.id
 
 
@@ -33,7 +33,7 @@ def test_new_scene_adds_and_selects(qtbot):
     widget.new_button.click()
 
     assert widget.list_widget.count() == 1
-    assert widget.description_edit.toPlainText() == "New scene"
+    assert widget.brief_edit.toPlainText() == "New scene"
     with session_scope() as session:
         scenes = list_scenes(session, story_id)
         assert len(scenes) == 1
@@ -64,9 +64,10 @@ def test_save_persists_edited_fields(qtbot):
     widget.new_button.click()
 
     widget.heading_edit.setText("Arrival")
-    widget.description_edit.setPlainText("They arrive at the gate.")
+    widget.brief_edit.setPlainText("They arrive at the gate.")
     widget.required_actions_edit.setPlainText("Knock on the door.")
-    widget.length_edit.setText("Short")
+    widget.desired_outcome_edit.setPlainText("They find the map.")
+    widget.target_length_edit.setText("Short")
     widget.position_edit.setValue(0)
     widget.save_button.click()
 
@@ -74,9 +75,49 @@ def test_save_persists_edited_fields(qtbot):
         scenes = list_scenes(session, story_id)
         assert len(scenes) == 1
         assert scenes[0].heading == "Arrival"
-        assert scenes[0].description == "They arrive at the gate."
+        assert scenes[0].brief == "They arrive at the gate."
         assert scenes[0].required_actions == "Knock on the door."
-        assert scenes[0].length == "Short"
+        assert scenes[0].desired_outcome == "They find the map."
+        assert scenes[0].target_length == "Short"
+
+
+def test_pov_character_combo_populated_and_saved(qtbot):
+    story_id = seed_story()
+    with session_scope() as session:
+        character = create_character(session, story_id=story_id, name="Alex")
+        character_id = character.id
+
+    widget = ScenesWidget()
+    qtbot.addWidget(widget)
+    widget.load(story_id)
+    widget.new_button.click()
+
+    assert widget.pov_character_combo.count() == 2
+    assert widget.pov_character_combo.currentData() is None
+
+    index = widget.pov_character_combo.findData(character_id)
+    widget.pov_character_combo.setCurrentIndex(index)
+    widget.save_button.click()
+
+    with session_scope() as session:
+        scenes = list_scenes(session, story_id)
+        assert scenes[0].pov_character_id == character_id
+
+
+def test_pov_character_combo_reselects_none_after_reload(qtbot):
+    story_id = seed_story()
+    with session_scope() as session:
+        create_character(session, story_id=story_id, name="Alex")
+
+    widget = ScenesWidget()
+    qtbot.addWidget(widget)
+    widget.load(story_id)
+    widget.new_button.click()
+
+    widget.save_button.click()
+
+    assert widget.pov_character_combo.currentIndex() == 0
+    assert widget.pov_character_combo.currentData() is None
 
 
 def test_delete_confirmed_removes_scene(qtbot, monkeypatch):
@@ -105,7 +146,7 @@ def test_selecting_scene_emits_scene_selected(qtbot):
     with session_scope() as session:
         from scene.core.scene import create_scene
 
-        scene = create_scene(session, story_id=story_id, position=0, description="Opening")
+        scene = create_scene(session, story_id=story_id, position=0, brief="Opening")
         scene_id = scene.id
     widget.refresh()
 

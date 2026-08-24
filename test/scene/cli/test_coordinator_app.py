@@ -164,7 +164,7 @@ async def test_thinking_toggle_expands_and_stays_expanded(monkeypatch):
 
 async def test_tool_call_notice_shows_name_only(monkeypatch):
     tool_call = FakeToolCallDelta(index=0, id="call_1", function=FakeFunctionDelta(name="create_story"))
-    args = FakeToolCallDelta(index=0, function=FakeFunctionDelta(arguments='{"title": "New Story", "scenario": "A scenario"}'))
+    args = FakeToolCallDelta(index=0, function=FakeFunctionDelta(arguments='{"title": "New Story", "story_brief": "A scenario"}'))
     script_stream(
         monkeypatch,
         [
@@ -186,7 +186,7 @@ async def test_tool_call_notice_shows_name_only(monkeypatch):
 
 async def test_story_pane_updates_after_tool_call(monkeypatch):
     tool_call = FakeToolCallDelta(index=0, id="call_1", function=FakeFunctionDelta(name="create_story"))
-    args = FakeToolCallDelta(index=0, function=FakeFunctionDelta(arguments='{"title": "New Story", "scenario": "A scenario"}'))
+    args = FakeToolCallDelta(index=0, function=FakeFunctionDelta(arguments='{"title": "New Story", "story_brief": "A scenario"}'))
     script_stream(
         monkeypatch,
         [
@@ -208,15 +208,15 @@ async def test_story_pane_updates_after_tool_call(monkeypatch):
 async def test_story_pane_shows_new_scene_after_tool_call(monkeypatch):
     story_tool_call = FakeToolCallDelta(index=0, id="call_1", function=FakeFunctionDelta(name="create_story"))
     story_args = FakeToolCallDelta(
-        index=0, function=FakeFunctionDelta(arguments='{"title": "New Story", "scenario": "A scenario"}')
+        index=0, function=FakeFunctionDelta(arguments='{"title": "New Story", "story_brief": "A scenario"}')
     )
     scene_tool_call = FakeToolCallDelta(index=0, id="call_2", function=FakeFunctionDelta(name="create_scene"))
     scene_args = FakeToolCallDelta(
         index=0,
         function=FakeFunctionDelta(
             arguments=(
-                '{"position": 0, "description": "Opening scene", "heading": "Arrival", '
-                '"required_actions": "Introduce the protagonist", "length": "Short"}'
+                '{"position": 0, "brief": "Opening scene", "heading": "Arrival", '
+                '"required_actions": "Introduce the protagonist", "target_length": "Short"}'
             )
         ),
     )
@@ -245,12 +245,12 @@ async def test_story_pane_shows_new_scene_after_tool_call(monkeypatch):
 async def test_story_pane_shows_character_in_cast_and_assigned_scene(monkeypatch):
     story_tool_call = FakeToolCallDelta(index=0, id="call_1", function=FakeFunctionDelta(name="create_story"))
     story_args = FakeToolCallDelta(
-        index=0, function=FakeFunctionDelta(arguments='{"title": "New Story", "scenario": "A scenario"}')
+        index=0, function=FakeFunctionDelta(arguments='{"title": "New Story", "story_brief": "A scenario"}')
     )
     scene_tool_call = FakeToolCallDelta(index=0, id="call_2", function=FakeFunctionDelta(name="create_scene"))
     scene_args = FakeToolCallDelta(
         index=0,
-        function=FakeFunctionDelta(arguments='{"position": 0, "description": "Opening scene", "heading": "Arrival"}'),
+        function=FakeFunctionDelta(arguments='{"position": 0, "brief": "Opening scene", "heading": "Arrival"}'),
     )
     character_tool_call = FakeToolCallDelta(index=0, id="call_3", function=FakeFunctionDelta(name="create_character"))
     character_args = FakeToolCallDelta(
@@ -308,12 +308,12 @@ async def test_story_pane_shows_character_in_cast_and_assigned_scene(monkeypatch
 async def test_story_pane_shows_location_in_locations_and_assigned_scene(monkeypatch):
     story_tool_call = FakeToolCallDelta(index=0, id="call_1", function=FakeFunctionDelta(name="create_story"))
     story_args = FakeToolCallDelta(
-        index=0, function=FakeFunctionDelta(arguments='{"title": "New Story", "scenario": "A scenario"}')
+        index=0, function=FakeFunctionDelta(arguments='{"title": "New Story", "story_brief": "A scenario"}')
     )
     scene_tool_call = FakeToolCallDelta(index=0, id="call_2", function=FakeFunctionDelta(name="create_scene"))
     scene_args = FakeToolCallDelta(
         index=0,
-        function=FakeFunctionDelta(arguments='{"position": 0, "description": "Opening scene", "heading": "Arrival"}'),
+        function=FakeFunctionDelta(arguments='{"position": 0, "brief": "Opening scene", "heading": "Arrival"}'),
     )
     location_tool_call = FakeToolCallDelta(index=0, id="call_3", function=FakeFunctionDelta(name="create_location"))
     location_args = FakeToolCallDelta(
@@ -373,7 +373,7 @@ async def test_story_pane_shows_placeholder_until_a_story_exists():
 
 async def test_clear_resets_history_current_story_transcript_and_pane(monkeypatch):
     tool_call = FakeToolCallDelta(index=0, id="call_1", function=FakeFunctionDelta(name="create_story"))
-    args = FakeToolCallDelta(index=0, function=FakeFunctionDelta(arguments='{"title": "New Story", "scenario": "A scenario"}'))
+    args = FakeToolCallDelta(index=0, function=FakeFunctionDelta(arguments='{"title": "New Story", "story_brief": "A scenario"}'))
     script_stream(
         monkeypatch,
         [

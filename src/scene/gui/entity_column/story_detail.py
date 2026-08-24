@@ -6,7 +6,8 @@ from scene.gui.section_heading import section_heading
 
 
 class StoryDetailWidget(QWidget):
-    """View/edit the selected story's title, scenario, and style guidance; archive/unarchive it."""
+    """View/edit the selected story's title, story brief, style guidance, and generation
+    guidance; archive/unarchive it."""
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -15,8 +16,9 @@ class StoryDetailWidget(QWidget):
         self._is_archived = False
 
         self.title_edit = QLineEdit()
-        self.scenario_edit = QPlainTextEdit()
+        self.story_brief_edit = QPlainTextEdit()
         self.style_guidance_edit = QPlainTextEdit()
+        self.generation_guideance_edit = QPlainTextEdit()
 
         self.save_button = QPushButton("Save Story")
         self.save_button.clicked.connect(self._on_save_clicked)
@@ -26,8 +28,9 @@ class StoryDetailWidget(QWidget):
 
         form = QFormLayout()
         form.addRow("Title", self.title_edit)
-        form.addRow("Scenario", self.scenario_edit)
+        form.addRow("Story Brief", self.story_brief_edit)
         form.addRow("Style Guidance", self.style_guidance_edit)
+        form.addRow("Generation Guidance", self.generation_guideance_edit)
 
         layout = QVBoxLayout(self)
         layout.addWidget(section_heading("Story"))
@@ -43,8 +46,9 @@ class StoryDetailWidget(QWidget):
         if story is None:
             return
         self.title_edit.setText(story.title)
-        self.scenario_edit.setPlainText(story.scenario)
+        self.story_brief_edit.setPlainText(story.story_brief)
         self.style_guidance_edit.setPlainText(story.style_guidance or "")
+        self.generation_guideance_edit.setPlainText(story.generation_guideance or "")
         self._is_archived = bool(story.is_archived)
         self.archive_button.setText("Unarchive" if self._is_archived else "Archive")
 
@@ -56,8 +60,9 @@ class StoryDetailWidget(QWidget):
                 session,
                 self.story_id,
                 title=self.title_edit.text().strip(),
-                scenario=self.scenario_edit.toPlainText().strip(),
+                story_brief=self.story_brief_edit.toPlainText().strip(),
                 style_guidance=self.style_guidance_edit.toPlainText().strip(),
+                generation_guideance=self.generation_guideance_edit.toPlainText().strip(),
             )
         self.load(self.story_id)
 

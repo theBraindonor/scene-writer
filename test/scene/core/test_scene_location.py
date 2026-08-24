@@ -25,13 +25,13 @@ def session():
 
 @pytest.fixture
 def story_id(session):
-    story = create_story(session, title="Title", scenario="Scenario")
+    story = create_story(session, title="Title", story_brief="Story brief")
     return story.id
 
 
 @pytest.fixture
 def scene_id(session, story_id):
-    scene = create_scene(session, story_id=story_id, position=0, description="A description")
+    scene = create_scene(session, story_id=story_id, position=0, brief="A brief")
     return scene.id
 
 
@@ -68,7 +68,7 @@ def test_assign_missing_location_raises(session, scene_id):
 
 
 def test_assign_cross_story_raises(session, scene_id):
-    other_story = create_story(session, title="Other", scenario="Other scenario")
+    other_story = create_story(session, title="Other", story_brief="Other story brief")
     other_location = create_location(session, story_id=other_story.id, name="Forest")
 
     with pytest.raises(ValueError, match="different stories"):

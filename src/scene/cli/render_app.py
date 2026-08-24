@@ -54,10 +54,11 @@ def _scene_detail_text(session, scene) -> str:
     lines = [
         f"Scene {scene.position}: {scene.heading or '(untitled)'}",
         "",
-        f"Description:\n{scene.description}",
+        f"Brief:\n{scene.brief}",
         "",
         f"Required actions: {scene.required_actions or '(none)'}",
-        f"Length: {scene.length or '(unspecified)'}",
+        f"Desired outcome: {scene.desired_outcome or '(none)'}",
+        f"Length: {scene.target_length or '(unspecified)'}",
         "",
         "Characters:",
     ]

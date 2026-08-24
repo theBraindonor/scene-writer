@@ -297,15 +297,18 @@ class CoordinatorApp(App[None]):
             lines = [
                 f"Story {story.id}: {story.title}",
                 "",
-                f"Scenario:\n{story.scenario}",
+                f"Story brief:\n{story.story_brief}",
                 "",
                 f"Style guidance:\n{story.style_guidance or '(none)'}",
+                "",
+                f"Generation guidance:\n{story.generation_guideance or '(none)'}",
                 "",
                 f"Archived: {bool(story.is_archived)}",
                 "",
                 "Cast of characters:",
             ]
             characters = list_characters(session, story_id)
+            characters_by_id = {character.id: character for character in characters}
             if characters:
                 for character in characters:
                     lines.append(f"  {character.name}")
@@ -327,10 +330,13 @@ class CoordinatorApp(App[None]):
             scenes = list_scenes(session, story_id)
             if scenes:
                 for scene in scenes:
+                    pov_character = characters_by_id.get(scene.pov_character_id)
                     lines.append(f"  {scene.position}. {scene.heading or '(untitled)'}")
-                    lines.append(f"     Description: {scene.description}")
+                    lines.append(f"     Brief: {scene.brief}")
                     lines.append(f"     Required actions: {scene.required_actions or '(none)'}")
-                    lines.append(f"     Length: {scene.length or '(unspecified)'}")
+                    lines.append(f"     POV character: {pov_character.name if pov_character else '(none)'}")
+                    lines.append(f"     Desired outcome: {scene.desired_outcome or '(none)'}")
+                    lines.append(f"     Length: {scene.target_length or '(unspecified)'}")
                     scene_characters = list_characters_for_scene(session, scene.id)
                     character_names = ", ".join(character.name for character in scene_characters) or "(none)"
                     lines.append(f"     Characters: {character_names}")

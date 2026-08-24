@@ -39,16 +39,16 @@ def isolated_database(tmp_path, monkeypatch):
 
 def seed_scene():
     with session_scope() as session:
-        story = create_story(session, title="A Story", scenario="A scenario")
-        scene = create_scene(session, story_id=story.id, position=0, description="Opening")
+        story = create_story(session, title="A Story", story_brief="A story brief")
+        scene = create_scene(session, story_id=story.id, position=0, brief="Opening")
         return scene.id
 
 
 def seed_two_scene_story():
     with session_scope() as session:
-        story = create_story(session, title="A Story", scenario="A scenario")
-        first = create_scene(session, story_id=story.id, position=0, description="First")
-        second = create_scene(session, story_id=story.id, position=1, description="Second")
+        story = create_story(session, title="A Story", story_brief="A story brief")
+        first = create_scene(session, story_id=story.id, position=0, brief="First")
+        second = create_scene(session, story_id=story.id, position=1, brief="Second")
         return first.id, second.id
 
 

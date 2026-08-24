@@ -56,9 +56,20 @@ app.add_typer(scene_location_app, name="scene-location")
 
 
 @story_app.command("create")
-def create(title: str, scenario: str, style_guidance: str | None = None) -> None:
+def create(
+    title: str,
+    story_brief: str,
+    style_guidance: str | None = None,
+    generation_guideance: str | None = None,
+) -> None:
     with session_scope() as session:
-        story = create_story(session, title=title, scenario=scenario, style_guidance=style_guidance)
+        story = create_story(
+            session,
+            title=title,
+            story_brief=story_brief,
+            style_guidance=style_guidance,
+            generation_guideance=generation_guideance,
+        )
         typer.echo(f"Created story {story.id}: {story.title}")
 
 
@@ -79,8 +90,9 @@ def get(story_id: int) -> None:
             raise typer.Exit(code=1)
         typer.echo(f"id: {story.id}")
         typer.echo(f"title: {story.title}")
-        typer.echo(f"scenario: {story.scenario}")
+        typer.echo(f"story_brief: {story.story_brief}")
         typer.echo(f"style_guidance: {story.style_guidance}")
+        typer.echo(f"generation_guideance: {story.generation_guideance}")
         typer.echo(f"is_archived: {bool(story.is_archived)}")
 
 
@@ -88,11 +100,19 @@ def get(story_id: int) -> None:
 def update(
     story_id: int,
     title: str | None = None,
-    scenario: str | None = None,
+    story_brief: str | None = None,
     style_guidance: str | None = None,
+    generation_guideance: str | None = None,
 ) -> None:
     with session_scope() as session:
-        story = update_story(session, story_id, title=title, scenario=scenario, style_guidance=style_guidance)
+        story = update_story(
+            session,
+            story_id,
+            title=title,
+            story_brief=story_brief,
+            style_guidance=style_guidance,
+            generation_guideance=generation_guideance,
+        )
         if story is None:
             typer.echo(f"Story {story_id} not found")
             raise typer.Exit(code=1)
@@ -123,21 +143,29 @@ def unarchive(story_id: int) -> None:
 def scene_create(
     story_id: int,
     position: int,
-    description: str,
+    brief: str,
     heading: str | None = None,
     required_actions: str | None = None,
-    length: str | None = None,
+    target_length: str | None = None,
+    desired_outcome: str | None = None,
+    pov_character_id: int | None = None,
 ) -> None:
     with session_scope() as session:
-        scene = create_scene(
-            session,
-            story_id=story_id,
-            position=position,
-            description=description,
-            heading=heading,
-            required_actions=required_actions,
-            length=length,
-        )
+        try:
+            scene = create_scene(
+                session,
+                story_id=story_id,
+                position=position,
+                brief=brief,
+                heading=heading,
+                required_actions=required_actions,
+                target_length=target_length,
+                desired_outcome=desired_outcome,
+                pov_character_id=pov_character_id,
+            )
+        except ValueError as error:
+            typer.echo(str(error))
+            raise typer.Exit(code=1) from error
         typer.echo(f"Created scene {scene.id} at position {scene.position} in story {scene.story_id}")
 
 
@@ -160,9 +188,11 @@ def scene_get(scene_id: int) -> None:
         typer.echo(f"story_id: {scene.story_id}")
         typer.echo(f"position: {scene.position}")
         typer.echo(f"heading: {scene.heading}")
-        typer.echo(f"description: {scene.description}")
+        typer.echo(f"brief: {scene.brief}")
         typer.echo(f"required_actions: {scene.required_actions}")
-        typer.echo(f"length: {scene.length}")
+        typer.echo(f"pov_character_id: {scene.pov_character_id}")
+        typer.echo(f"desired_outcome: {scene.desired_outcome}")
+        typer.echo(f"target_length: {scene.target_length}")
 
 
 @scene_app.command("update")
@@ -170,20 +200,28 @@ def scene_update(
     scene_id: int,
     position: int | None = None,
     heading: str | None = None,
-    description: str | None = None,
+    brief: str | None = None,
     required_actions: str | None = None,
-    length: str | None = None,
+    target_length: str | None = None,
+    desired_outcome: str | None = None,
+    pov_character_id: int | None = None,
 ) -> None:
     with session_scope() as session:
-        scene = update_scene(
-            session,
-            scene_id,
-            position=position,
-            heading=heading,
-            description=description,
-            required_actions=required_actions,
-            length=length,
-        )
+        try:
+            scene = update_scene(
+                session,
+                scene_id,
+                position=position,
+                heading=heading,
+                brief=brief,
+                required_actions=required_actions,
+                target_length=target_length,
+                desired_outcome=desired_outcome,
+                pov_character_id=pov_character_id,
+            )
+        except ValueError as error:
+            typer.echo(str(error))
+            raise typer.Exit(code=1) from error
         if scene is None:
             typer.echo(f"Scene {scene_id} not found")
             raise typer.Exit(code=1)

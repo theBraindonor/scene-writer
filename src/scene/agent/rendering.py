@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 
 from scene.agent.config import LLMConfig
 from scene.agent.llm import stream_complete
-from scene.core.character import list_characters
+from scene.core.character import get_character, list_characters
 from scene.core.location import list_locations
 from scene.core.rendering import list_renderings
 from scene.core.scene import list_scenes
@@ -28,16 +28,21 @@ def _scene_detail_text(session: Session, scene: Scene) -> str:
     character_names = ", ".join(character.name for character in list_characters_for_scene(session, scene.id))
     location_names = ", ".join(location.name for location in list_locations_for_scene(session, scene.id))
 
-    return "\n\n".join(
-        [
-            f"# Scene: {scene.heading or '(untitled)'}",
-            f"## Length\n\n{scene.length or '(unspecified)'}",
-            f"## Description\n\n{scene.description}",
-            f"## Locations\n\n{location_names or '(none)'}",
-            f"## Characters\n\n{character_names or '(none)'}",
-            f"## Required Elements\n\n{scene.required_actions or '(none)'}",
-        ]
-    )
+    sections = [
+        f"# Scene: {scene.heading or '(untitled)'}",
+        f"## Target Length\n\n{scene.target_length or '(unspecified)'}",
+        f"## Brief\n\n{scene.brief}",
+        f"## Locations\n\n{location_names or '(none)'}",
+        f"## Characters\n\n{character_names or '(none)'}",
+        f"## Required Elements\n\n{scene.required_actions or '(none)'}",
+    ]
+    if scene.desired_outcome:
+        sections.append(f"## Desired Outcome\n\n{scene.desired_outcome}")
+    if scene.pov_character_id is not None:
+        pov_character = get_character(session, scene.pov_character_id)
+        if pov_character is not None:
+            sections.append(f"## Point of View\n\nWrite from {pov_character.name}'s point of view.")
+    return "\n\n".join(sections)
 
 
 def _character_roster_markdown(session: Session, story_id: int) -> str:
@@ -81,10 +86,10 @@ def build_render_messages(session: Session, story_id: int, target_scene_id: int)
 
     fiction_prefix = (
         "You are a fiction writer drafting a scene of an ongoing story. This is a work of "
-        "fiction: the scenario and this scene's details have already been laid out ahead of "
-        "time by the story's author, so treat them as established facts of the story world "
-        "rather than something to invent, question, or reconsider. Your job is only to write "
-        "the requested scene's prose."
+        "fiction: the story brief and this scene's details have already been laid out ahead "
+        "of time by the story's author, so treat them as established facts of the story "
+        "world rather than something to invent, question, or reconsider. Your job is only to "
+        "write the requested scene's prose."
     )
     fiction_suffix = (
         "The story's author will give you one scene at a time, in the order that they will "
@@ -92,9 +97,11 @@ def build_render_messages(session: Session, story_id: int, target_scene_id: int)
         "scene of the story can be written. It is important that you include all required "
         "elements—they are intended to provide the spine of continuity for the story."
     )
-    system_lines = [fiction_prefix, f"## Scenario\n\n{story.scenario}"]
+    system_lines = [fiction_prefix, f"## Story Brief\n\n{story.story_brief}"]
     if story.style_guidance:
         system_lines.append(f"## Style Guidance\n\n{story.style_guidance}")
+    if story.generation_guideance:
+        system_lines.append(f"## Generation Guidance\n\n{story.generation_guideance}")
     system_lines.append(_character_roster_markdown(session, story_id))
     system_lines.append(_location_roster_markdown(session, story_id))
     system_lines.append(fiction_suffix)

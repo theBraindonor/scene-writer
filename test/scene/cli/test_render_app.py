@@ -99,10 +99,10 @@ def make_config():
 
 def seed_story_with_scene():
     with session_scope() as session:
-        story = create_story(session, title="A Story", scenario="A scenario")
+        story = create_story(session, title="A Story", story_brief="A story brief")
         character = create_character(session, story_id=story.id, name="Alex")
         location = create_location(session, story_id=story.id, name="The Tavern")
-        scene = create_scene(session, story_id=story.id, position=0, description="Opening", heading="Arrival")
+        scene = create_scene(session, story_id=story.id, position=0, brief="Opening", heading="Arrival")
         assign_character(session, scene.id, character.id)
         assign_location(session, scene.id, location.id)
         return story.id, scene.id
@@ -110,8 +110,8 @@ def seed_story_with_scene():
 
 async def test_story_picker_lists_stories_and_selecting_shows_scenes():
     with session_scope() as session:
-        story = create_story(session, title="A Story", scenario="A scenario")
-        create_scene(session, story_id=story.id, position=0, description="Opening", heading="Arrival")
+        story = create_story(session, title="A Story", story_brief="A story brief")
+        create_scene(session, story_id=story.id, position=0, brief="Opening", heading="Arrival")
         story_id = story.id
 
     app = RenderApp(make_config())
@@ -218,9 +218,9 @@ async def test_render_next_scene_shows_notice_when_all_scenes_rendered(monkeypat
 
 async def test_scene_list_highlight_updates_detail_pane():
     with session_scope() as session:
-        story = create_story(session, title="A Story", scenario="A scenario")
-        create_scene(session, story_id=story.id, position=0, description="First", heading="Arrival")
-        create_scene(session, story_id=story.id, position=1, description="Second", heading="Departure")
+        story = create_story(session, title="A Story", story_brief="A story brief")
+        create_scene(session, story_id=story.id, position=0, brief="First", heading="Arrival")
+        create_scene(session, story_id=story.id, position=1, brief="Second", heading="Departure")
         story_id = story.id
 
     app = RenderApp(make_config())
@@ -239,7 +239,7 @@ async def test_scene_list_highlight_updates_detail_pane():
 
 async def test_render_screen_shows_no_scenes_placeholder_when_story_has_no_scenes():
     with session_scope() as session:
-        story = create_story(session, title="Empty Story", scenario="A scenario")
+        story = create_story(session, title="Empty Story", story_brief="A story brief")
         story_id = story.id
 
     app = RenderApp(make_config())

@@ -1,5 +1,6 @@
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
+    QComboBox,
     QFormLayout,
     QHBoxLayout,
     QLabel,
@@ -23,6 +24,8 @@ from scene.data.database import session_scope
 from scene.gui.list_sizing import fit_list_height_to_contents
 from scene.gui.section_heading import section_heading
 
+NO_POV_CHARACTER_LABEL = "(none)"
+
 
 class ScenesWidget(QWidget):
     """List, create, edit, and delete a story's scenes, and manage a selected scene's
@@ -45,9 +48,11 @@ class ScenesWidget(QWidget):
         self.heading_edit = QLineEdit()
         self.position_edit = QSpinBox()
         self.position_edit.setMaximum(9999)
-        self.description_edit = QPlainTextEdit()
+        self.brief_edit = QPlainTextEdit()
         self.required_actions_edit = QPlainTextEdit()
-        self.length_edit = QLineEdit()
+        self.pov_character_combo = QComboBox()
+        self.desired_outcome_edit = QPlainTextEdit()
+        self.target_length_edit = QLineEdit()
 
         self.new_button = QPushButton("New Scene")
         self.new_button.clicked.connect(self._on_new_clicked)
@@ -61,9 +66,11 @@ class ScenesWidget(QWidget):
         form = QFormLayout()
         form.addRow("Heading", self.heading_edit)
         form.addRow("Position", self.position_edit)
-        form.addRow("Description", self.description_edit)
+        form.addRow("Brief", self.brief_edit)
         form.addRow("Required Actions", self.required_actions_edit)
-        form.addRow("Length", self.length_edit)
+        form.addRow("Point of View", self.pov_character_combo)
+        form.addRow("Desired Outcome", self.desired_outcome_edit)
+        form.addRow("Target Length", self.target_length_edit)
 
         buttons = QHBoxLayout()
         buttons.addWidget(self.new_button)
@@ -96,7 +103,7 @@ class ScenesWidget(QWidget):
         self.list_widget.clear()
         with session_scope() as session:
             for scene in list_scenes(session, self.story_id):
-                label = scene.heading or scene.description
+                label = scene.heading or scene.brief
                 item = QListWidgetItem(f"{scene.position}: {label}")
                 item.setData(Qt.ItemDataRole.UserRole, scene.id)
                 self.list_widget.addItem(item)
@@ -126,9 +133,11 @@ class ScenesWidget(QWidget):
         if scene_id is None:
             self.heading_edit.clear()
             self.position_edit.setValue(0)
-            self.description_edit.clear()
+            self.brief_edit.clear()
             self.required_actions_edit.clear()
-            self.length_edit.clear()
+            self.desired_outcome_edit.clear()
+            self.target_length_edit.clear()
+            self._load_pov_character_options(None)
             self.character_list.clear()
             fit_list_height_to_contents(self.character_list)
             self.location_list.clear()
@@ -141,10 +150,25 @@ class ScenesWidget(QWidget):
             return
         self.heading_edit.setText(scene.heading or "")
         self.position_edit.setValue(scene.position)
-        self.description_edit.setPlainText(scene.description)
+        self.brief_edit.setPlainText(scene.brief)
         self.required_actions_edit.setPlainText(scene.required_actions or "")
-        self.length_edit.setText(scene.length or "")
+        self.desired_outcome_edit.setPlainText(scene.desired_outcome or "")
+        self.target_length_edit.setText(scene.target_length or "")
+        self._load_pov_character_options(scene.pov_character_id)
         self._load_assignments(scene_id)
+
+    def _load_pov_character_options(self, selected_character_id: int | None) -> None:
+        self.pov_character_combo.blockSignals(True)
+        self.pov_character_combo.clear()
+        self.pov_character_combo.addItem(NO_POV_CHARACTER_LABEL, None)
+        if self.story_id is not None:
+            with session_scope() as session:
+                characters = list_characters(session, self.story_id)
+            for character in characters:
+                self.pov_character_combo.addItem(character.name, character.id)
+        index = self.pov_character_combo.findData(selected_character_id)
+        self.pov_character_combo.setCurrentIndex(max(index, 0))
+        self.pov_character_combo.blockSignals(False)
 
     def _load_assignments(self, scene_id: int) -> None:
         with session_scope() as session:
@@ -176,7 +200,7 @@ class ScenesWidget(QWidget):
             return
         with session_scope() as session:
             position = len(list_scenes(session, self.story_id))
-            scene = create_scene(session, story_id=self.story_id, position=position, description="New scene")
+            scene = create_scene(session, story_id=self.story_id, position=position, brief="New scene")
             scene_id = scene.id
         self.refresh(select_scene_id=scene_id)
 
@@ -184,21 +208,27 @@ class ScenesWidget(QWidget):
         if self.current_scene_id is None:
             return
         with session_scope() as session:
-            update_scene(
-                session,
-                self.current_scene_id,
-                position=self.position_edit.value(),
-                heading=self.heading_edit.text().strip(),
-                description=self.description_edit.toPlainText().strip(),
-                required_actions=self.required_actions_edit.toPlainText().strip(),
-                length=self.length_edit.text().strip(),
-            )
+            try:
+                update_scene(
+                    session,
+                    self.current_scene_id,
+                    position=self.position_edit.value(),
+                    heading=self.heading_edit.text().strip(),
+                    brief=self.brief_edit.toPlainText().strip(),
+                    required_actions=self.required_actions_edit.toPlainText().strip(),
+                    target_length=self.target_length_edit.text().strip(),
+                    desired_outcome=self.desired_outcome_edit.toPlainText().strip(),
+                    pov_character_id=self.pov_character_combo.currentData(),
+                )
+            except ValueError as error:
+                QMessageBox.warning(self, "Save Scene", str(error))
+                return
         self.refresh(select_scene_id=self.current_scene_id)
 
     def _on_delete_clicked(self) -> None:
         if self.current_scene_id is None:
             return
-        if not self._confirm_delete(self.heading_edit.text() or self.description_edit.toPlainText()):
+        if not self._confirm_delete(self.heading_edit.text() or self.brief_edit.toPlainText()):
             return
         with session_scope() as session:
             delete_scene(session, self.current_scene_id)
