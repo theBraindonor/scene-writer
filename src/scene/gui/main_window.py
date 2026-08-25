@@ -48,7 +48,22 @@ class MainWindow(QMainWindow):
             rendering_llm_config = None
             rendering_llm_error = f"Could not resolve the rendering agent's model: {error}"
 
-        self.rendering_column = RenderingColumn(rendering_llm_config, error=rendering_llm_error)
+        try:
+            continuity_llm_config = get_llm_config(AgentRole.CONTINUITY_EDITING)
+            continuity_llm_error = None
+        except (RuntimeError, TypeError) as error:
+            continuity_llm_config = None
+            continuity_llm_error = f"Could not resolve the continuity-editor agent's model: {error}"
+
+        rendering_error = rendering_llm_error
+        if continuity_llm_error is not None:
+            rendering_error = (
+                f"{rendering_error}\n{continuity_llm_error}" if rendering_error else continuity_llm_error
+            )
+
+        self.rendering_column = RenderingColumn(
+            rendering_llm_config, continuity_llm_config, error=rendering_error
+        )
         self.entity_column.current_scene_changed.connect(self.rendering_column.set_scene)
         # Switching stories always resets the selected scene to None via EntityColumn's own
         # cascade, but the rendering column depends on that reset explicitly per its contract

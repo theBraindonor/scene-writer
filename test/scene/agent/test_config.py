@@ -22,6 +22,11 @@ def registry_path(tmp_path):
           lmstudio-instruct:
             model: openai/my-model
             api_base: http://localhost:1234/v1
+          openrouter-reasoning:
+            model: openrouter/aion-labs/aion-3.0-mini
+            api_key_env: OPENROUTER_API_KEY
+            max_tokens: 4096
+            reasoning_effort: low
         """,
         encoding="utf-8",
     )
@@ -43,6 +48,21 @@ def test_resolves_profile_without_api_key_env(monkeypatch, registry_path):
     result = get_llm_config(AgentRole.COORDINATING, registry_path=registry_path)
 
     assert result == LLMConfig(model="openai/my-model", api_base="http://localhost:1234/v1", api_key=None)
+
+
+def test_resolves_profile_with_max_tokens_and_reasoning_effort(monkeypatch, registry_path):
+    monkeypatch.setenv("SCENE_COORDINATING_AGENT", "openrouter-reasoning")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-test")
+
+    result = get_llm_config(AgentRole.COORDINATING, registry_path=registry_path)
+
+    assert result == LLMConfig(
+        model="openrouter/aion-labs/aion-3.0-mini",
+        api_base=None,
+        api_key="sk-test",
+        max_tokens=4096,
+        reasoning_effort="low",
+    )
 
 
 def test_missing_role_env_var_raises(monkeypatch, registry_path):

@@ -1,3 +1,5 @@
+from collections.abc import Callable
+
 from PySide6.QtCore import QObject, Qt, QThread, QTimer, Signal
 from PySide6.QtWidgets import (
     QCheckBox,
@@ -10,11 +12,13 @@ from PySide6.QtWidgets import (
     QPlainTextEdit,
     QPushButton,
     QStackedWidget,
+    QTabWidget,
     QVBoxLayout,
     QWidget,
 )
 
 from scene.agent.config import LLMConfig
+from scene.agent.continuity import accept_scene, regenerate_snapshots_from
 from scene.agent.rendering import (
     RenderComplete,
     RenderContentDelta,
@@ -23,6 +27,7 @@ from scene.agent.rendering import (
     build_render_messages,
     stream_render,
 )
+from scene.core.continuity_snapshot import get_snapshot
 from scene.core.rendering import (
     create_rendering,
     delete_rendering,
@@ -37,6 +42,7 @@ from scene.gui.section_heading import section_heading
 
 NO_SCENE_SELECTED_TEXT = "Select a scene to see its rendering."
 NO_RENDERINGS_TEXT = "This scene has no renderings yet."
+NO_CONTINUITY_SNAPSHOT_TEXT = "(No continuity snapshot yet.)"
 EARLIER_SCENE_UNRENDERED_TEXT = "An earlier scene has no active rendering yet. Render it first."
 DELETE_SOLE_RENDERING_TEXT = "Cannot delete a scene's only rendering."
 DELETE_ACTIVE_RENDERING_TEXT = "Cannot delete the active rendering. Activate a different version first."
@@ -45,6 +51,10 @@ CANCELLED_SAVED_TEXT = "Generation cancelled. Partial rendering saved as a new v
 CANCELLED_EMPTY_TEXT = "Generation cancelled. Nothing had been generated yet."
 GENERATION_ERROR_SAVED_TEXT = "Generation error: {error}. Partial rendering saved as a new version."
 GENERATION_ERROR_EMPTY_TEXT = "Generation error: {error}. Nothing had been generated yet."
+CONTINUITY_UPDATE_FAILED_TEXT = "Continuity snapshot update failed: {error}"
+CONTINUITY_REGENERATE_FAILED_TEXT = "Continuity snapshot regeneration failed: {error}"
+PROSE_TAB_LABEL = "Prose"
+CONTINUITY_SNAPSHOT_TAB_LABEL = "Continuity Snapshot"
 RENDER_LABEL = "Render"
 PREVIEW_PROMPT_LABEL = "Preview Prompt"
 BODY_FONT_SCALE = 1.5
@@ -95,6 +105,27 @@ class _RenderWorker(QObject):
                 self.event_received.emit(event)
                 if isinstance(event, RenderComplete):
                     break
+        except Exception as error:  # noqa: BLE001 - surfaced to the UI, never swallowed
+            self.error_occurred.emit(str(error))
+        self.finished.emit()
+
+
+class _ContinuityWorker(QObject):
+    """Runs one continuity-editor call (`accept_scene` or `regenerate_snapshots_from`) on a
+    background thread, mirroring `_RenderWorker`'s thread/signal pattern for the main render
+    stream so a continuity-editor call (potentially several LLM round trips for a
+    `regenerate_snapshots_from` chain) never blocks the GUI thread."""
+
+    error_occurred = Signal(str)
+    finished = Signal()
+
+    def __init__(self, target: Callable[[], None], parent: QObject | None = None) -> None:
+        super().__init__(parent)
+        self._target = target
+
+    def run(self) -> None:
+        try:
+            self._target()
         except Exception as error:  # noqa: BLE001 - surfaced to the UI, never swallowed
             self.error_occurred.emit(str(error))
         self.finished.emit()
@@ -151,17 +182,24 @@ class RenderingColumn(QWidget):
     generation_finished = Signal()
 
     def __init__(
-        self, llm_config: LLMConfig | None, error: str | None = None, parent: QWidget | None = None
+        self,
+        llm_config: LLMConfig | None,
+        continuity_config: LLMConfig | None = None,
+        error: str | None = None,
+        parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
 
         self._llm_config = llm_config
+        self._continuity_config = continuity_config
         self.current_scene_id: int | None = None
         self.current_story_id: int | None = None
         self.current_scene_position: int | None = None
         self.selected_rendering_id: int | None = None
         self._thread: QThread | None = None
         self._worker: _RenderWorker | None = None
+        self._continuity_thread: QThread | None = None
+        self._continuity_worker: _ContinuityWorker | None = None
         self._generating = False
         self._generating_scene_id: int | None = None
         self._content_text = ""
@@ -182,9 +220,20 @@ class RenderingColumn(QWidget):
         body_font.setPointSize(round(body_font.pointSize() * BODY_FONT_SCALE))
         self.body_view.setFont(body_font)
 
+        self.continuity_snapshot_view = QPlainTextEdit()
+        self.continuity_snapshot_view.setReadOnly(True)
+
+        self.tabs = QTabWidget()
+        self.tabs.addTab(self.body_view, PROSE_TAB_LABEL)
+        self.tabs.addTab(self.continuity_snapshot_view, CONTINUITY_SNAPSHOT_TAB_LABEL)
+
         self.notice_label = QLabel()
         self.notice_label.setWordWrap(True)
         self.notice_label.hide()
+
+        self.continuity_notice_label = QLabel()
+        self.continuity_notice_label.setWordWrap(True)
+        self.continuity_notice_label.hide()
 
         self.preview_prompt_checkbox = QCheckBox(PREVIEW_PROMPT_LABEL)
         self.preview_prompt_checkbox.setChecked(False)
@@ -220,8 +269,9 @@ class RenderingColumn(QWidget):
         content_layout.addWidget(QLabel("Versions"))
         content_layout.addWidget(self.version_list)
         content_layout.addLayout(version_row)
-        content_layout.addWidget(self.body_view)
+        content_layout.addWidget(self.tabs)
         content_layout.addLayout(generate_row)
+        content_layout.addWidget(self.continuity_notice_label)
         content_layout.addWidget(self.notice_label)
 
         self.stack = QStackedWidget()
@@ -234,6 +284,10 @@ class RenderingColumn(QWidget):
 
         if error is not None:
             self._show_notice(error)
+        if llm_config is None:
+            # Only the rendering model is required to disable generation entirely -- a missing
+            # continuity_config is folded into the same notice above, but stays optional
+            # (mirroring e009/e011's CLI behavior), so it never blocks rendering on its own.
             self.generate_button.setEnabled(False)
 
     # -- scene selection ---------------------------------------------------
@@ -315,6 +369,18 @@ class RenderingColumn(QWidget):
         self.activate_button.setEnabled(target_id is not None and not busy)
         self.delete_button.setEnabled(target_id is not None and not busy)
 
+        self._refresh_continuity_snapshot()
+
+    def _refresh_continuity_snapshot(self) -> None:
+        if self.current_scene_id is None or self.current_story_id is None:
+            self.continuity_snapshot_view.setPlainText("")
+            return
+        with session_scope() as session:
+            snapshot = get_snapshot(session, self.current_story_id, self.current_scene_id)
+        self.continuity_snapshot_view.setPlainText(
+            snapshot.narrative_state if snapshot is not None else NO_CONTINUITY_SNAPSHOT_TEXT
+        )
+
     def _on_version_selected(self, current: QListWidgetItem | None, previous: QListWidgetItem | None) -> None:
         if current is None:
             self.selected_rendering_id = None
@@ -334,6 +400,17 @@ class RenderingColumn(QWidget):
         with session_scope() as session:
             set_active_rendering(session, self.selected_rendering_id)
         self._refresh(select_rendering_id=self.selected_rendering_id)
+        if (
+            self._continuity_config is not None
+            and self.current_story_id is not None
+            and self.current_scene_position is not None
+        ):
+            story_id = self.current_story_id
+            from_position = self.current_scene_position
+            self._start_continuity_task(
+                lambda: self._regenerate_snapshots_task(story_id, from_position),
+                CONTINUITY_REGENERATE_FAILED_TEXT,
+            )
 
     def _on_delete_clicked(self) -> None:
         if self.current_scene_id is None or self.selected_rendering_id is None:
@@ -469,6 +546,13 @@ class RenderingColumn(QWidget):
             with session_scope() as session:
                 rendering = create_rendering(session, scene_id=scene_id, body=assembled)
                 set_active_rendering(session, rendering.id)
+                generated_scene = get_scene(session, scene_id)
+            if self._continuity_config is not None and generated_scene is not None:
+                story_id = generated_scene.story_id
+                self._start_continuity_task(
+                    lambda: self._accept_scene_task(story_id, scene_id),
+                    CONTINUITY_UPDATE_FAILED_TEXT,
+                )
 
         if self.current_scene_id is not None:
             self._refresh()
@@ -481,6 +565,38 @@ class RenderingColumn(QWidget):
 
         self.generation_finished.emit()
 
+    # -- continuity editor ---------------------------------------------------
+
+    def _accept_scene_task(self, story_id: int, scene_id: int) -> None:
+        with session_scope() as session:
+            accept_scene(self._continuity_config, session, story_id, scene_id)
+
+    def _regenerate_snapshots_task(self, story_id: int, from_position: int) -> None:
+        with session_scope() as session:
+            regenerate_snapshots_from(self._continuity_config, session, story_id, from_position)
+
+    def _start_continuity_task(self, target: Callable[[], None], error_template: str) -> None:
+        # `self._continuity_thread`/`self._continuity_worker` are deliberately left alone once
+        # started (not set to `None` here) -- the next call overwrites both with fresh instances,
+        # exactly as `_start_generation()` leaves `self._thread`/`self._worker` alone; see that
+        # method's comment on `_on_generation_finished` for why.
+        self._hide_continuity_notice()
+        thread = QThread()
+        worker = _ContinuityWorker(target)
+        worker.moveToThread(thread)
+        thread.started.connect(worker.run)
+        worker.error_occurred.connect(lambda message: self._show_continuity_notice(error_template.format(error=message)))
+        worker.finished.connect(self._on_continuity_task_finished)
+        worker.finished.connect(thread.quit)
+        worker.finished.connect(worker.deleteLater)
+        thread.finished.connect(thread.deleteLater)
+        self._continuity_thread = thread
+        self._continuity_worker = worker
+        thread.start()
+
+    def _on_continuity_task_finished(self) -> None:
+        self._refresh_continuity_snapshot()
+
     # -- notices ---------------------------------------------------------------
 
     def _show_notice(self, text: str) -> None:
@@ -490,3 +606,11 @@ class RenderingColumn(QWidget):
     def _hide_notice(self) -> None:
         self.notice_label.clear()
         self.notice_label.hide()
+
+    def _show_continuity_notice(self, text: str) -> None:
+        self.continuity_notice_label.setText(text)
+        self.continuity_notice_label.show()
+
+    def _hide_continuity_notice(self) -> None:
+        self.continuity_notice_label.clear()
+        self.continuity_notice_label.hide()

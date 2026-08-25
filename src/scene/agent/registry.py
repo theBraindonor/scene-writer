@@ -12,6 +12,8 @@ class ModelProfile:
     model: str
     api_base: str | None = None
     api_key_env: str | None = None
+    max_tokens: int | None = None
+    reasoning_effort: str | None = None
 
 
 def load_registry(registry_path: Path | None = None) -> dict[str, ModelProfile]:
@@ -35,6 +37,8 @@ def load_registry(registry_path: Path | None = None) -> dict[str, ModelProfile]:
             model=fields["model"],
             api_base=fields.get("api_base"),
             api_key_env=fields.get("api_key_env"),
+            max_tokens=fields.get("max_tokens"),
+            reasoning_effort=fields.get("reasoning_effort"),
         )
 
     return profiles

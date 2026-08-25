@@ -5,10 +5,11 @@ from textual.app import App, ComposeResult
 from textual.binding import Binding, BindingType
 from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.screen import Screen
-from textual.widgets import Button, Label, ListItem, ListView, Markdown, Static
+from textual.widgets import Button, Label, ListItem, ListView, Static
 from textual.worker import Worker, WorkerState, get_current_worker
 
 from scene.agent.config import LLMConfig
+from scene.agent.continuity import accept_scene, regenerate_snapshots_from
 from scene.agent.rendering import (
     RenderContentDelta,
     RenderReasoningDelta,
@@ -16,6 +17,7 @@ from scene.agent.rendering import (
     find_next_unrendered_scene,
     stream_render,
 )
+from scene.core.continuity_snapshot import get_snapshot
 from scene.core.rendering import (
     create_rendering,
     delete_rendering,
@@ -23,7 +25,7 @@ from scene.core.rendering import (
     list_renderings,
     set_active_rendering,
 )
-from scene.core.scene import list_scenes
+from scene.core.scene import get_scene, list_scenes
 from scene.core.scene_character import list_characters_for_scene
 from scene.core.scene_location import list_locations_for_scene
 from scene.core.story import list_stories
@@ -38,6 +40,9 @@ DELETE_ACTIVE_RENDERING_TEXT = "Cannot delete the active rendering. Activate a d
 CANCEL_CONFIRM_TEXT = "Cancel generation? Y to confirm, N to keep writing."
 CANCELLED_SAVED_TEXT = "Generation cancelled. Partial rendering saved."
 CANCELLED_EMPTY_TEXT = "Generation cancelled. Nothing had been generated yet."
+CONTINUITY_UPDATE_FAILED_TEXT = "Continuity snapshot update failed: {error}"
+CONTINUITY_REGENERATE_FAILED_TEXT = "Continuity snapshot regeneration failed: {error}"
+NO_CONTINUITY_SNAPSHOT_TEXT = "(No continuity snapshot yet.)"
 
 
 def _has_active_rendering(session, scene_id: int) -> bool:
@@ -148,6 +153,12 @@ class RenderScreen(Screen[None]):
         padding: 1;
     }
 
+    #continuity-snapshot-text {
+        height: auto;
+        border-top: solid $panel;
+        padding: 1;
+    }
+
     #version-list {
         height: 6;
         border-top: solid $panel;
@@ -190,7 +201,10 @@ class RenderScreen(Screen[None]):
                     yield Button("Regenerate this scene", id="regenerate")
             with Vertical(id="output-column"):
                 yield Static("", id="cancel-notice")
+                yield Static("", id="continuity-notice")
                 yield VerticalScroll(id="output-scroll")
+                yield Static("Continuity Snapshot:", id="continuity-snapshot-label")
+                yield Static("", id="continuity-snapshot-text")
                 yield Static("Versions:", id="version-label")
                 yield ListView(id="version-list")
                 yield Static("", id="version-text")
@@ -243,8 +257,19 @@ class RenderScreen(Screen[None]):
             selected = next((scene for scene in scenes if scene.id == self.selected_scene_id), None)
             if selected is not None:
                 self.query_one("#scene-detail", Static).update(_scene_detail_text(session, selected))
+                self._refresh_continuity_snapshot()
                 return
         self.query_one("#scene-detail", Static).update(NO_SCENES_TEXT)
+        self._refresh_continuity_snapshot()
+
+    def _refresh_continuity_snapshot(self) -> None:
+        text_widget = self.query_one("#continuity-snapshot-text", Static)
+        if self.selected_scene_id is None:
+            text_widget.update("")
+            return
+        with session_scope() as session:
+            snapshot = get_snapshot(session, self.story_id, self.selected_scene_id)
+        text_widget.update(snapshot.narrative_state if snapshot is not None else NO_CONTINUITY_SNAPSHOT_TEXT)
 
     async def _refresh_versions(self) -> None:
         version_list = self.query_one("#version-list", ListView)
@@ -272,6 +297,7 @@ class RenderScreen(Screen[None]):
                 )
                 if scene is not None:
                     self.query_one("#scene-detail", Static).update(_scene_detail_text(session, scene))
+            self._refresh_continuity_snapshot()
             self.run_worker(self._refresh_versions())
         elif isinstance(item, VersionListItem):
             self.selected_rendering_id = item.rendering_id
@@ -302,8 +328,24 @@ class RenderScreen(Screen[None]):
             return
         with session_scope() as session:
             set_active_rendering(session, self.selected_rendering_id)
+            scene = get_scene(session, self.selected_scene_id) if self.selected_scene_id is not None else None
+            position = scene.position if scene is not None else None
         await self._refresh_versions()
         await self._refresh_scenes()
+        if position is not None and self.app.continuity_config is not None:
+            self._regenerate_snapshots(position)
+
+    @work(thread=True)
+    def _regenerate_snapshots(self, from_position: int) -> None:
+        try:
+            with session_scope() as session:
+                regenerate_snapshots_from(self.app.continuity_config, session, self.story_id, from_position)
+        except Exception as error:  # noqa: BLE001 - surfaced to the UI, never swallowed
+            self.app.call_from_thread(
+                self._show_continuity_notice, CONTINUITY_REGENERATE_FAILED_TEXT.format(error=error)
+            )
+        finally:
+            self.app.call_from_thread(self._refresh_continuity_snapshot)
 
     async def _delete_selected_version(self) -> None:
         if self.selected_scene_id is None or self.selected_rendering_id is None:
@@ -333,15 +375,24 @@ class RenderScreen(Screen[None]):
         self.query_one("#cancel-notice", Static).update("")
         scroll = self.query_one("#output-scroll", VerticalScroll)
         scroll.remove_children()
-        scroll.mount(Markdown("", id="output-text"))
+        # Plain Static, not Markdown: re-parsing the whole accumulated text as Markdown on
+        # every streamed chunk causes partial tokens (a lone "*", "1." at a line start, etc.)
+        # to be reinterpreted differently as more text arrives, making the pane visibly
+        # reflow/jump mid-stream. Scene prose isn't meant to be structured Markdown anyway --
+        # #version-text already displays a saved rendering's body as plain text, so this keeps
+        # the live stream consistent with that.
+        scroll.mount(Static("", id="output-text"))
 
     def _append_output(self, text: str) -> None:
         self._output_text += text
-        self.query_one("#output-text", Markdown).update(self._output_text)
+        self.query_one("#output-text", Static).update(self._output_text)
         self.query_one("#output-scroll", VerticalScroll).scroll_end(animate=False)
 
     def _show_cancelled_notice(self, saved: bool) -> None:
         self.query_one("#cancel-notice", Static).update(CANCELLED_SAVED_TEXT if saved else CANCELLED_EMPTY_TEXT)
+
+    def _show_continuity_notice(self, text: str) -> None:
+        self.query_one("#continuity-notice", Static).update(text)
 
     @work(thread=True)
     def _render_scene(self, scene_id: int) -> None:
@@ -374,6 +425,13 @@ class RenderScreen(Screen[None]):
             with session_scope() as session:
                 rendering = create_rendering(session, scene_id=scene_id, body=assembled)
                 set_active_rendering(session, rendering.id)
+                if self.app.continuity_config is not None:
+                    try:
+                        accept_scene(self.app.continuity_config, session, self.story_id, scene_id)
+                    except Exception as error:  # noqa: BLE001 - surfaced to the UI, never swallowed
+                        self.app.call_from_thread(
+                            self._show_continuity_notice, CONTINUITY_UPDATE_FAILED_TEXT.format(error=error)
+                        )
 
         self.app.call_from_thread(self._refresh_scenes)
         self.app.call_from_thread(self._refresh_versions)
@@ -382,9 +440,10 @@ class RenderScreen(Screen[None]):
 
 
 class RenderApp(App[None]):
-    def __init__(self, config: LLMConfig) -> None:
+    def __init__(self, config: LLMConfig, continuity_config: LLMConfig | None = None) -> None:
         super().__init__()
         self.config = config
+        self.continuity_config = continuity_config
 
     def on_mount(self) -> None:
         self.push_screen(StoryPickerScreen())

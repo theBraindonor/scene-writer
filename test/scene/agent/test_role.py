@@ -7,3 +7,7 @@ def test_coordinating_env_var():
 
 def test_rendering_env_var():
     assert AgentRole.RENDERING.env_var == "SCENE_RENDERING_AGENT"
+
+
+def test_continuity_editing_env_var():
+    assert AgentRole.CONTINUITY_EDITING.env_var == "SCENE_CONTINUITY_AGENT"

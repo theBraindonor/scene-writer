@@ -6,13 +6,15 @@ from sqlalchemy.orm import Session
 
 from scene.agent.config import LLMConfig
 from scene.agent.llm import stream_complete
-from scene.core.character import get_character, list_characters
-from scene.core.location import list_locations
+from scene.core.character import get_character
+from scene.core.continuity_snapshot import get_preceding_snapshot
 from scene.core.rendering import list_renderings
 from scene.core.scene import list_scenes
 from scene.core.scene_character import list_characters_for_scene
 from scene.core.scene_location import list_locations_for_scene
 from scene.core.story import get_story
+from scene.data.character import Character
+from scene.data.location import Location
 from scene.data.scene import Scene
 
 
@@ -24,54 +26,49 @@ def find_next_unrendered_scene(session: Session, story_id: int) -> Scene | None:
     return None
 
 
-def _scene_detail_text(session: Session, scene: Scene) -> str:
-    character_names = ", ".join(character.name for character in list_characters_for_scene(session, scene.id))
-    location_names = ", ".join(location.name for location in list_locations_for_scene(session, scene.id))
-
-    sections = [
-        f"# Scene: {scene.heading or '(untitled)'}",
-        f"## Target Length\n\n{scene.target_length or '(unspecified)'}",
-        f"## Brief\n\n{scene.brief}",
-        f"## Locations\n\n{location_names or '(none)'}",
-        f"## Characters\n\n{character_names or '(none)'}",
-        f"## Required Elements\n\n{scene.required_actions or '(none)'}",
-    ]
-    if scene.desired_outcome:
-        sections.append(f"## Desired Outcome\n\n{scene.desired_outcome}")
+def _scene_brief_text(session: Session, scene: Scene) -> str:
+    lines = ["SCENE BRIEF"]
+    if scene.heading:
+        lines.append(f"Heading: {scene.heading}")
     if scene.pov_character_id is not None:
         pov_character = get_character(session, scene.pov_character_id)
         if pov_character is not None:
-            sections.append(f"## Point of View\n\nWrite from {pov_character.name}'s point of view.")
-    return "\n\n".join(sections)
-
-
-def _character_roster_markdown(session: Session, story_id: int) -> str:
-    characters = list_characters(session, story_id)
-    if not characters:
-        return "## Characters\n\n(none)"
-    lines = ["## Characters", ""]
-    for character in characters:
-        description = character.description or "(no description)"
-        motive = character.motive or "(none)"
-        lines.append(f"- **{character.name}**: {description} (Motive: {motive})")
+            lines.append(f"Point of view: {pov_character.name}")
+    lines.append(f"Brief: {scene.brief}")
+    if scene.required_actions:
+        lines.append(f"Required actions: {scene.required_actions}")
+    if scene.desired_outcome:
+        lines.append(f"Desired outcome: {scene.desired_outcome}")
+    if scene.target_length:
+        lines.append(f"Target length: {scene.target_length}")
     return "\n".join(lines)
 
 
-def _location_roster_markdown(session: Session, story_id: int) -> str:
-    locations = list_locations(session, story_id)
-    if not locations:
-        return "## Locations\n\n(none)"
-    lines = ["## Locations", ""]
-    for location in locations:
-        lines.append(f"- **{location.name}**: {location.description or '(no description)'}")
+def _character_card(character: Character) -> str:
+    lines = [f"CHARACTER: {character.name}"]
+    if character.description:
+        lines.append(f"Enduring details: {character.description}")
+    if character.motive:
+        lines.append(f"Core motive: {character.motive}")
     return "\n".join(lines)
 
 
-def _active_rendering_body(session: Session, scene: Scene) -> str:
+def _location_card(location: Location) -> str:
+    lines = [f"LOCATION: {location.name}"]
+    if location.description:
+        lines.append(location.description)
+    return "\n".join(lines)
+
+
+def _scene_reference_cards(session: Session, scene_id: int) -> str:
+    cards = [_character_card(character) for character in list_characters_for_scene(session, scene_id)]
+    cards.extend(_location_card(location) for location in list_locations_for_scene(session, scene_id))
+    return "\n\n".join(cards)
+
+
+def _active_rendering_body_or_none(session: Session, scene: Scene) -> str | None:
     active = next((rendering for rendering in list_renderings(session, scene.id) if rendering.is_active), None)
-    if active is None:
-        raise ValueError(f"Scene {scene.id} has no active rendering.")
-    return active.body
+    return active.body if active is not None else None
 
 
 def build_render_messages(session: Session, story_id: int, target_scene_id: int) -> list[dict[str, Any]]:
@@ -102,18 +99,27 @@ def build_render_messages(session: Session, story_id: int, target_scene_id: int)
         system_lines.append(f"## Style Guidance\n\n{story.style_guidance}")
     if story.generation_guideance:
         system_lines.append(f"## Generation Guidance\n\n{story.generation_guideance}")
-    system_lines.append(_character_roster_markdown(session, story_id))
-    system_lines.append(_location_roster_markdown(session, story_id))
+    reference_cards = _scene_reference_cards(session, target.id)
+    if reference_cards:
+        system_lines.append(reference_cards)
     system_lines.append(fiction_suffix)
     messages: list[dict[str, Any]] = [{"role": "system", "content": "\n\n".join(system_lines)}]
 
-    for scene in scenes:
-        if scene.position >= target.position:
-            continue
-        messages.append({"role": "user", "content": _scene_detail_text(session, scene)})
-        messages.append({"role": "assistant", "content": _active_rendering_body(session, scene)})
+    target_index = scenes.index(target)
+    preceding_scene = scenes[target_index - 1] if target_index > 0 else None
 
-    messages.append({"role": "user", "content": _scene_detail_text(session, target)})
+    user_sections = []
+    if preceding_scene is not None:
+        preceding_snapshot = get_preceding_snapshot(session, story_id, target.id)
+        if preceding_snapshot is not None:
+            user_sections.append(f"CURRENT CANON\n\n{preceding_snapshot.narrative_state}")
+
+        recent_prose = _active_rendering_body_or_none(session, preceding_scene)
+        if recent_prose is not None:
+            user_sections.append(f"OPTIONAL RECENT PROSE\n\n{recent_prose}")
+
+    user_sections.append(_scene_brief_text(session, target))
+    messages.append({"role": "user", "content": "\n\n".join(user_sections)})
     return messages
 
 

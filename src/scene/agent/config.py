@@ -13,6 +13,8 @@ class LLMConfig:
     model: str
     api_base: str | None
     api_key: str | None
+    max_tokens: int | None = None
+    reasoning_effort: str | None = None
 
 
 def get_llm_config(role: AgentRole, registry_path: Path | None = None) -> LLMConfig:
@@ -28,4 +30,10 @@ def get_llm_config(role: AgentRole, registry_path: Path | None = None) -> LLMCon
         raise RuntimeError(f"{role.env_var}={profile_name!r} does not match any profile in models.yaml.")
 
     api_key = os.environ.get(profile.api_key_env) if profile.api_key_env else None
-    return LLMConfig(model=profile.model, api_base=profile.api_base, api_key=api_key)
+    return LLMConfig(
+        model=profile.model,
+        api_base=profile.api_base,
+        api_key=api_key,
+        max_tokens=profile.max_tokens,
+        reasoning_effort=profile.reasoning_effort,
+    )

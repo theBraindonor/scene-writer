@@ -9,9 +9,9 @@ kind: scripted
 name: e009-continuity-snapshot-cli
 regions:
 - cli
-status: draft
+status: completed
 updated_by: John Hoff
-updated_on: '2026-08-24T14:27:32Z'
+updated_on: '2026-08-24T19:12:08Z'
 ---
 
 # Continuity snapshot — CLI layer
@@ -93,3 +93,21 @@ generation path exactly as it did for the story-fields path.
 - `pdm run lint` reports no findings.
 - `pdm run scene-data continuity-snapshot --help` shows the new `get`/
   `delete` commands.
+
+## Log
+
+### Review - 2026-08-24T18:59:51Z - John Hoff
+
+e009-continuity-snapshot-cli's Plan correctly honors both applicable lore items -- it schedules pdm run lint and full pdm run pytest coverage (with tests added at the correct mirrored test/scene/cli/... paths) as explicit steps and Verification gates -- and is well-grounded in the landed e008 agent surface (accept_scene/regenerate_snapshots_from signatures and the CONTINUITY_EDITING role/config resolution match exactly). Two notes for the implementer before this is scripted further: (1) the coordinator.py wiring asks to both "reuse the same try/except pattern" used for the required RENDERING config (which exits on failure) and to "pass the resulting config, which may be None" -- for the optional CONTINUITY_EDITING config the except branch should set the config to None rather than exit, and the Plan should say so explicitly rather than leaving the two instructions in tension; (2) the continuity-snapshot get CLI command's backing core-layer lookup by exact (story_id, scene_id) was not confirmed within this review's reading bounds (only delete_snapshot and get_preceding_snapshot, which has different semantics, were visible) and should be verified against scene/core/continuity_snapshot.py before implementation.
+
+### Completed - 2026-08-24T19:12:08Z - John Hoff
+
+CLI wiring implemented as planned, resolving both review notes:
+
+- src/scene/cli/coordinator.py: render now additionally resolves AgentRole.CONTINUITY_EDITING, but as an optional dependency -- on RuntimeError/TypeError it prints "Continuing without it" and sets continuity_config=None rather than exiting, distinct from the required RENDERING resolution which still exits (resolving the review's note 1).
+- src/scene/cli/render_app.py: RenderApp takes an additional continuity_config: LLMConfig | None = None; _render_scene calls accept_scene after a generation is saved+activated (try/except -> new #continuity-notice Static, never crashes); _activate_selected_version fires a new @work(thread=True) _regenerate_snapshots helper after activating a non-latest version (kept off the main event loop since _activate_selected_version itself runs as a plain asyncio worker, not a thread).
+- src/scene/cli/data.py: new continuity-snapshot Typer sub-app with get/delete (backed by core.continuity_snapshot.get_snapshot/delete_snapshot from e007 -- resolving the review's note 2, which just fell outside that reviewer's bounded reading surface).
+
+Updated test/scene/cli/test_coordinator.py (optional-config resolution/failure), test/scene/cli/test_render_app.py (5 new tests: accept_scene called/skipped/failure-notice, regenerate_snapshots_from called/failure-notice), and test/scene/cli/test_data.py (4 new continuity-snapshot get/delete tests, seeding via core.create_snapshot directly since there's deliberately no CLI create command).
+
+test/scene/cli/** is fully green (107 passed), pdm run lint is clean, and `scene-data continuity-snapshot --help` shows get/delete. Full repo suite: 454 passed, 0 failed (up from 444 before this encounter). Next: e010-continuity-snapshot-gui, the final encounter in this campaign.

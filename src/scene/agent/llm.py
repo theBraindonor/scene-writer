@@ -18,6 +18,10 @@ def _build_kwargs(
         kwargs["api_key"] = config.api_key
     if tools is not None:
         kwargs["tools"] = tools
+    if config.max_tokens is not None:
+        kwargs["max_tokens"] = config.max_tokens
+    if config.reasoning_effort is not None:
+        kwargs["reasoning_effort"] = config.reasoning_effort
     return kwargs
 
 

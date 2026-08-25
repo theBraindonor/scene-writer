@@ -3,6 +3,8 @@ from typer.testing import CliRunner
 
 import scene.data.database as database_module
 from scene.cli.data import app
+from scene.core.continuity_snapshot import create_snapshot
+from scene.data.database import session_scope
 
 runner = CliRunner()
 
@@ -543,3 +545,48 @@ def test_unassign_missing_location():
 
     assert result.exit_code == 1
     assert "not assigned" in result.stdout
+
+
+def test_get_continuity_snapshot():
+    runner.invoke(app, ["story", "create", "My Story", "A scenario"])
+    runner.invoke(app, ["scene", "create", "1", "0", "The hero arrives."])
+    with session_scope() as session:
+        create_snapshot(session, 1, 1, "The hero has arrived.")
+
+    result = runner.invoke(app, ["continuity-snapshot", "get", "1", "1"])
+
+    assert result.exit_code == 0
+    assert "narrative_state: The hero has arrived." in result.stdout
+
+
+def test_get_missing_continuity_snapshot():
+    runner.invoke(app, ["story", "create", "My Story", "A scenario"])
+    runner.invoke(app, ["scene", "create", "1", "0", "The hero arrives."])
+
+    result = runner.invoke(app, ["continuity-snapshot", "get", "1", "1"])
+
+    assert result.exit_code == 1
+    assert "not found" in result.stdout
+
+
+def test_delete_continuity_snapshot():
+    runner.invoke(app, ["story", "create", "My Story", "A scenario"])
+    runner.invoke(app, ["scene", "create", "1", "0", "The hero arrives."])
+    with session_scope() as session:
+        create_snapshot(session, 1, 1, "The hero has arrived.")
+
+    result = runner.invoke(app, ["continuity-snapshot", "delete", "1", "1"])
+    assert result.exit_code == 0
+
+    result = runner.invoke(app, ["continuity-snapshot", "get", "1", "1"])
+    assert result.exit_code == 1
+
+
+def test_delete_missing_continuity_snapshot():
+    runner.invoke(app, ["story", "create", "My Story", "A scenario"])
+    runner.invoke(app, ["scene", "create", "1", "0", "The hero arrives."])
+
+    result = runner.invoke(app, ["continuity-snapshot", "delete", "1", "1"])
+
+    assert result.exit_code == 1
+    assert "not found" in result.stdout

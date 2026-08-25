@@ -7,6 +7,7 @@ import scene.agent.coordinator.loop as loop_module
 import scene.data.database as database_module
 import scene.gui.main_window as main_window_module
 from scene.agent.config import LLMConfig
+from scene.agent.role import AgentRole
 from scene.core.character import list_characters
 from scene.core.rendering import create_rendering, set_active_rendering
 from scene.core.scene import create_scene, list_scenes
@@ -106,6 +107,28 @@ def test_window_shows_placeholder_panes(qtbot):
     assert window.rendering_column.stack.currentWidget() is window.rendering_column.no_selection_label
     assert window.rendering_column.no_selection_label.text() == NO_SCENE_SELECTED_TEXT
     assert window.chat_panel.input_edit.isEnabled()
+
+
+def test_rendering_column_receives_resolved_continuity_config(qtbot):
+    window = make_window(qtbot)
+
+    assert window.rendering_column._llm_config is not None
+    assert window.rendering_column._continuity_config is not None
+
+
+def test_missing_continuity_config_does_not_disable_generation(qtbot, monkeypatch):
+    def selective_get_llm_config(role):
+        if role is AgentRole.CONTINUITY_EDITING:
+            raise RuntimeError("SCENE_CONTINUITY_AGENT is not set.")
+        return LLMConfig(model="openai/test-model", api_base=None, api_key=None)
+
+    monkeypatch.setattr(main_window_module, "get_llm_config", selective_get_llm_config)
+
+    window = make_window(qtbot)
+
+    assert window.rendering_column._llm_config is not None
+    assert window.rendering_column._continuity_config is None
+    assert "SCENE_CONTINUITY_AGENT is not set." in window.rendering_column.notice_label.text()
 
 
 def test_left_column_composition(qtbot):

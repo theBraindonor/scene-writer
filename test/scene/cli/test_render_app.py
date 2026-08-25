@@ -5,9 +5,10 @@ from dataclasses import dataclass, field
 
 import pytest
 from textual.containers import VerticalScroll
-from textual.widgets import Markdown, Static
+from textual.widgets import Static
 
 import scene.agent.rendering as rendering_module
+import scene.cli.render_app as render_app_module
 import scene.data.database as database_module
 from scene.agent.config import LLMConfig
 from scene.cli.render_app import (
@@ -16,6 +17,7 @@ from scene.cli.render_app import (
     CANCELLED_SAVED_TEXT,
     DELETE_ACTIVE_RENDERING_TEXT,
     DELETE_SOLE_RENDERING_TEXT,
+    NO_CONTINUITY_SNAPSHOT_TEXT,
     NO_SCENES_TEXT,
     RenderApp,
     RenderScreen,
@@ -25,6 +27,7 @@ from scene.cli.render_app import (
     VersionListItem,
 )
 from scene.core.character import create_character
+from scene.core.continuity_snapshot import create_snapshot, delete_snapshot
 from scene.core.location import create_location
 from scene.core.rendering import create_rendering, list_renderings, set_active_rendering
 from scene.core.scene import create_scene
@@ -153,8 +156,8 @@ async def test_render_next_scene_streams_and_persists_active_rendering(monkeypat
         await app.workers.wait_for_complete()
         await pilot.pause()
 
-        output = app.screen.query_one("#output-text", Markdown)
-        assert output.source == "Once upon a time."
+        output = app.screen.query_one("#output-text", Static)
+        assert output.content == "Once upon a time."
 
         with session_scope() as session:
             renderings = list_renderings(session, scene_id)
@@ -290,8 +293,8 @@ async def test_regenerate_creates_new_version_and_keeps_previous(monkeypatch):
         await app.workers.wait_for_complete()
         await pilot.pause()
 
-        output = app.screen.query_one("#output-text", Markdown)
-        assert output.source == "Second version."
+        output = app.screen.query_one("#output-text", Static)
+        assert output.content == "Second version."
 
         with session_scope() as session:
             renderings = list_renderings(session, scene_id)
@@ -339,6 +342,230 @@ async def test_activating_version_updates_active_indicator_and_scene_status():
         assert app.screen.query_one(f"#version-{first_id}", VersionListItem).is_active
         scene_item = app.screen.query_one(SceneListItem)
         assert "✓" in str(scene_item.query_one("Label").content)
+
+
+async def test_render_next_scene_calls_accept_scene_when_continuity_config_set(monkeypatch):
+    story_id, scene_id = seed_story_with_scene()
+    script_stream(monkeypatch, [make_chunk(content="Once upon a time.")])
+
+    captured = {}
+
+    def fake_accept_scene(config, session, story_id_arg, scene_id_arg):
+        captured["config"] = config
+        captured["story_id"] = story_id_arg
+        captured["scene_id"] = scene_id_arg
+
+    monkeypatch.setattr(render_app_module, "accept_scene", fake_accept_scene)
+
+    continuity_config = make_config()
+    app = RenderApp(make_config(), continuity_config)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await pilot.click(f"#story-{story_id}")
+        await pilot.pause()
+
+        await pilot.click("#render-next")
+        await app.workers.wait_for_complete()
+        await pilot.pause()
+
+    assert captured["config"] is continuity_config
+    assert captured["story_id"] == story_id
+    assert captured["scene_id"] == scene_id
+
+
+async def test_render_next_scene_skips_accept_scene_without_continuity_config(monkeypatch):
+    story_id, _scene_id = seed_story_with_scene()
+    script_stream(monkeypatch, [make_chunk(content="Once upon a time.")])
+
+    def unexpected_accept_scene(config, session, story_id_arg, scene_id_arg):
+        raise AssertionError("accept_scene() should not be called without a continuity_config")
+
+    monkeypatch.setattr(render_app_module, "accept_scene", unexpected_accept_scene)
+
+    app = RenderApp(make_config())
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await pilot.click(f"#story-{story_id}")
+        await pilot.pause()
+
+        await pilot.click("#render-next")
+        await app.workers.wait_for_complete()
+        await pilot.pause()
+
+
+async def test_render_next_scene_shows_notice_when_accept_scene_fails(monkeypatch):
+    story_id, _scene_id = seed_story_with_scene()
+    script_stream(monkeypatch, [make_chunk(content="Once upon a time.")])
+
+    def failing_accept_scene(config, session, story_id_arg, scene_id_arg):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(render_app_module, "accept_scene", failing_accept_scene)
+
+    app = RenderApp(make_config(), make_config())
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await pilot.click(f"#story-{story_id}")
+        await pilot.pause()
+
+        await pilot.click("#render-next")
+        await app.workers.wait_for_complete()
+        await pilot.pause()
+
+        notice = app.screen.query_one("#continuity-notice", Static)
+        assert "boom" in str(notice.content)
+
+
+async def test_activating_version_calls_regenerate_snapshots_from_when_continuity_config_set(monkeypatch):
+    story_id, scene_id = seed_story_with_scene()
+    with session_scope() as session:
+        first = create_rendering(session, scene_id=scene_id, body="First version.")
+        set_active_rendering(session, first.id)
+        second = create_rendering(session, scene_id=scene_id, body="Second version.")
+        set_active_rendering(session, second.id)
+        first_id = first.id
+
+    captured = {}
+
+    def fake_regenerate(config, session, story_id_arg, from_position):
+        captured["config"] = config
+        captured["story_id"] = story_id_arg
+        captured["from_position"] = from_position
+
+    monkeypatch.setattr(render_app_module, "regenerate_snapshots_from", fake_regenerate)
+
+    continuity_config = make_config()
+    app = RenderApp(make_config(), continuity_config)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await pilot.click(f"#story-{story_id}")
+        await pilot.pause()
+
+        await pilot.click(f"#version-{first_id}")
+        await pilot.pause()
+
+        await pilot.click("#activate-version")
+        await app.workers.wait_for_complete()
+        await pilot.pause()
+
+    assert captured["config"] is continuity_config
+    assert captured["story_id"] == story_id
+    assert captured["from_position"] == 0
+
+
+async def test_activating_version_shows_notice_when_regenerate_fails(monkeypatch):
+    story_id, scene_id = seed_story_with_scene()
+    with session_scope() as session:
+        first = create_rendering(session, scene_id=scene_id, body="First version.")
+        set_active_rendering(session, first.id)
+        second = create_rendering(session, scene_id=scene_id, body="Second version.")
+        set_active_rendering(session, second.id)
+        first_id = first.id
+
+    def failing_regenerate(config, session, story_id_arg, from_position):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(render_app_module, "regenerate_snapshots_from", failing_regenerate)
+
+    app = RenderApp(make_config(), make_config())
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await pilot.click(f"#story-{story_id}")
+        await pilot.pause()
+
+        await pilot.click(f"#version-{first_id}")
+        await pilot.pause()
+
+        await pilot.click("#activate-version")
+        await app.workers.wait_for_complete()
+        await pilot.pause()
+
+        notice = app.screen.query_one("#continuity-notice", Static)
+        assert "boom" in str(notice.content)
+
+
+async def test_continuity_snapshot_panel_shows_placeholder_when_none_exists():
+    story_id, _scene_id = seed_story_with_scene()
+
+    app = RenderApp(make_config())
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await pilot.click(f"#story-{story_id}")
+        await pilot.pause()
+
+        panel = app.screen.query_one("#continuity-snapshot-text", Static)
+        assert str(panel.content) == NO_CONTINUITY_SNAPSHOT_TEXT
+
+
+async def test_continuity_snapshot_panel_shows_saved_snapshot():
+    story_id, scene_id = seed_story_with_scene()
+    with session_scope() as session:
+        create_snapshot(session, story_id, scene_id, "Mara is at the station.")
+
+    app = RenderApp(make_config())
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await pilot.click(f"#story-{story_id}")
+        await pilot.pause()
+
+        panel = app.screen.query_one("#continuity-snapshot-text", Static)
+        assert str(panel.content) == "Mara is at the station."
+
+
+async def test_continuity_snapshot_panel_updates_after_generation(monkeypatch):
+    story_id, _scene_id = seed_story_with_scene()
+    script_stream(monkeypatch, [make_chunk(content="Once upon a time.")])
+
+    def fake_accept_scene(config, session, story_id_arg, scene_id_arg):
+        create_snapshot(session, story_id_arg, scene_id_arg, "Fresh state.")
+
+    monkeypatch.setattr(render_app_module, "accept_scene", fake_accept_scene)
+
+    app = RenderApp(make_config(), make_config())
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await pilot.click(f"#story-{story_id}")
+        await pilot.pause()
+
+        await pilot.click("#render-next")
+        await app.workers.wait_for_complete()
+        await pilot.pause()
+
+        panel = app.screen.query_one("#continuity-snapshot-text", Static)
+        assert str(panel.content) == "Fresh state."
+
+
+async def test_continuity_snapshot_panel_updates_after_activating_version(monkeypatch):
+    story_id, scene_id = seed_story_with_scene()
+    with session_scope() as session:
+        first = create_rendering(session, scene_id=scene_id, body="First version.")
+        set_active_rendering(session, first.id)
+        second = create_rendering(session, scene_id=scene_id, body="Second version.")
+        set_active_rendering(session, second.id)
+        first_id = first.id
+        create_snapshot(session, story_id, scene_id, "Stale state.")
+
+    def fake_regenerate(config, session, story_id_arg, from_position):
+        delete_snapshot(session, story_id_arg, scene_id)
+        create_snapshot(session, story_id_arg, scene_id, "Fresh state.")
+
+    monkeypatch.setattr(render_app_module, "regenerate_snapshots_from", fake_regenerate)
+
+    app = RenderApp(make_config(), make_config())
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await pilot.click(f"#story-{story_id}")
+        await pilot.pause()
+
+        await pilot.click(f"#version-{first_id}")
+        await pilot.pause()
+
+        await pilot.click("#activate-version")
+        await app.workers.wait_for_complete()
+        await pilot.pause()
+
+        panel = app.screen.query_one("#continuity-snapshot-text", Static)
+        assert str(panel.content) == "Fresh state."
 
 
 async def test_delete_refuses_scene_sole_rendering():
@@ -450,7 +677,7 @@ async def test_escape_then_y_cancels_generation_and_saves_partial_content(monkey
 
         await pilot.click("#render-next")
         gates[0].set()
-        await wait_until(lambda: "word0 " in app.screen.query_one("#output-text", Markdown).source)
+        await wait_until(lambda: "word0 " in app.screen.query_one("#output-text", Static).content)
         await pilot.pause()
 
         await pilot.press("escape")
@@ -465,8 +692,8 @@ async def test_escape_then_y_cancels_generation_and_saves_partial_content(monkey
         await wait_until(lambda: str(app.screen.query_one("#cancel-notice", Static).content) == CANCELLED_SAVED_TEXT)
         await pilot.pause()
 
-        output = app.screen.query_one("#output-text", Markdown)
-        assert output.source == "word0 word1 "
+        output = app.screen.query_one("#output-text", Static)
+        assert output.content == "word0 word1 "
 
         with session_scope() as session:
             renderings = list_renderings(session, scene_id)
@@ -488,7 +715,7 @@ async def test_escape_then_n_keeps_generation_running_to_completion(monkeypatch)
 
         await pilot.click("#render-next")
         gates[0].set()
-        await wait_until(lambda: "word0 " in app.screen.query_one("#output-text", Markdown).source)
+        await wait_until(lambda: "word0 " in app.screen.query_one("#output-text", Static).content)
         await pilot.pause()
 
         await pilot.press("escape")
@@ -504,8 +731,8 @@ async def test_escape_then_n_keeps_generation_running_to_completion(monkeypatch)
         await app.workers.wait_for_complete()
         await pilot.pause()
 
-        output = app.screen.query_one("#output-text", Markdown)
-        assert output.source == full_text
+        output = app.screen.query_one("#output-text", Static)
+        assert output.content == full_text
 
         with session_scope() as session:
             renderings = list_renderings(session, scene_id)

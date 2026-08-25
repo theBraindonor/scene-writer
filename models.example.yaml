@@ -2,9 +2,9 @@
 # Copy this file to models.yaml (gitignored) and fill in real values.
 #
 # Each profile is referenced by name from a role-selector env var in .env
-# (SCENE_COORDINATING_AGENT / SCENE_RENDERING_AGENT), so a role can be
-# repointed at a different model by changing one line in .env rather than
-# editing this registry.
+# (SCENE_COORDINATING_AGENT / SCENE_RENDERING_AGENT / SCENE_CONTINUITY_AGENT),
+# so a role can be repointed at a different model by changing one line in
+# .env rather than editing this registry.
 #
 # Fields:
 #   model        Required. A litellm-style model identifier, including its
@@ -14,6 +14,15 @@
 #   api_key_env  Optional. Name of the environment variable (set in .env)
 #                holding this profile's API key. Omit for a local server
 #                that doesn't require one.
+#   max_tokens   Optional. Caps the completion length. Set this for reasoning
+#                models: without it, a model that spends its whole budget on
+#                <think>-style reasoning can exhaust its output before ever
+#                emitting the actual response, producing an empty result.
+#   reasoning_effort  Optional. Passed through to litellm's unified
+#                `reasoning_effort` parameter ("low"/"medium"/"high") for
+#                providers that support tuning how much a reasoning model
+#                thinks before answering. Omit if the provider doesn't
+#                support it, or to leave it at the provider's default.
 
 profiles:
   openrouter-instruct:
@@ -23,3 +32,8 @@ profiles:
   lmstudio-roleplay:
     model: openai/my-roleplay-model
     api_base: http://localhost:1234/v1
+
+  openrouter-reasoning-roleplay:
+    model: openrouter/aion-labs/aion-3.0-mini
+    api_key_env: OPENROUTER_API_KEY
+    max_tokens: 4096

@@ -8,6 +8,7 @@ import scene.data.database as database_module
 import scene.gui.rendering_column as rendering_column_module
 from scene.agent.config import LLMConfig
 from scene.agent.rendering import RenderComplete, RenderContentDelta, RenderEvent, RenderReasoningDelta
+from scene.core.continuity_snapshot import create_snapshot
 from scene.core.rendering import create_rendering, list_renderings, set_active_rendering
 from scene.core.scene import create_scene
 from scene.core.story import create_story
@@ -15,14 +16,17 @@ from scene.data.database import session_scope
 from scene.gui.rendering_column import (
     BODY_FONT_SCALE,
     CANCELLED_SAVED_TEXT,
+    CONTINUITY_SNAPSHOT_TAB_LABEL,
     DELETE_ACTIVE_RENDERING_TEXT,
     DELETE_SOLE_RENDERING_TEXT,
     EARLIER_SCENE_UNRENDERED_TEXT,
     GENERATE_BUTTON_WIDTH,
     GENERATION_ERROR_EMPTY_TEXT,
     GENERATION_ERROR_SAVED_TEXT,
+    NO_CONTINUITY_SNAPSHOT_TEXT,
     NO_RENDERINGS_TEXT,
     NO_SCENE_SELECTED_TEXT,
+    PROSE_TAB_LABEL,
     RENDER_LABEL,
     RenderingColumn,
     _format_messages,
@@ -30,6 +34,7 @@ from scene.gui.rendering_column import (
 )
 
 FAKE_CONFIG = LLMConfig(model="fake-model", api_base=None, api_key=None)
+FAKE_CONTINUITY_CONFIG = LLMConfig(model="fake-continuity-model", api_base=None, api_key=None)
 
 
 @pytest.fixture(autouse=True)
@@ -42,6 +47,13 @@ def seed_scene():
         story = create_story(session, title="A Story", story_brief="A story brief")
         scene = create_scene(session, story_id=story.id, position=0, brief="Opening")
         return scene.id
+
+
+def seed_scene_with_story():
+    with session_scope() as session:
+        story = create_story(session, title="A Story", story_brief="A story brief")
+        scene = create_scene(session, story_id=story.id, position=0, brief="Opening")
+        return story.id, scene.id
 
 
 def seed_two_scene_story():
@@ -77,6 +89,40 @@ def test_body_view_font_is_scaled_up_from_the_default(qtbot):
     qtbot.addWidget(widget)
 
     assert widget.body_view.font().pointSize() == round(default_point_size * BODY_FONT_SCALE)
+
+
+def test_body_view_and_continuity_snapshot_view_are_separate_tabs(qtbot):
+    widget = RenderingColumn(FAKE_CONFIG)
+    qtbot.addWidget(widget)
+
+    assert widget.tabs.count() == 2
+    assert widget.tabs.tabText(0) == PROSE_TAB_LABEL
+    assert widget.tabs.tabText(1) == CONTINUITY_SNAPSHOT_TAB_LABEL
+    assert widget.tabs.widget(0) is widget.body_view
+    assert widget.tabs.widget(1) is widget.continuity_snapshot_view
+    assert widget.continuity_snapshot_view.isReadOnly()
+
+
+def test_continuity_snapshot_tab_shows_placeholder_when_none_exists(qtbot):
+    scene_id = seed_scene()
+
+    widget = RenderingColumn(FAKE_CONFIG)
+    qtbot.addWidget(widget)
+    widget.set_scene(scene_id)
+
+    assert widget.continuity_snapshot_view.toPlainText() == NO_CONTINUITY_SNAPSHOT_TEXT
+
+
+def test_continuity_snapshot_tab_shows_existing_snapshot(qtbot):
+    story_id, scene_id = seed_scene_with_story()
+    with session_scope() as session:
+        create_snapshot(session, story_id, scene_id, "Mara is at the station.")
+
+    widget = RenderingColumn(FAKE_CONFIG)
+    qtbot.addWidget(widget)
+    widget.set_scene(scene_id)
+
+    assert widget.continuity_snapshot_view.toPlainText() == "Mara is at the station."
 
 
 def test_shows_no_renderings_message_and_enables_generate(qtbot):
@@ -467,3 +513,134 @@ def test_stream_error_before_any_content_saves_nothing_and_notifies(qtbot, monke
     assert widget.notice_label.text() == GENERATION_ERROR_EMPTY_TEXT.format(error="connection reset")
     assert not widget._generating
     assert not widget.generate_button.isHidden()
+
+
+def test_generate_accepts_scene_and_updates_continuity_tab(qtbot, monkeypatch):
+    scene_id = seed_scene()
+    events: list[RenderEvent] = [RenderContentDelta("Once upon a time."), RenderComplete("Once upon a time.")]
+    monkeypatch.setattr(rendering_column_module, "stream_render", _fake_stream(events))
+
+    def fake_accept_scene(config, session, story_id, accepted_scene_id):
+        assert config is FAKE_CONTINUITY_CONFIG
+        assert accepted_scene_id == scene_id
+        create_snapshot(session, story_id, accepted_scene_id, "Fresh state.")
+
+    monkeypatch.setattr(rendering_column_module, "accept_scene", fake_accept_scene)
+
+    widget = RenderingColumn(FAKE_CONFIG, FAKE_CONTINUITY_CONFIG)
+    qtbot.addWidget(widget)
+    widget.set_scene(scene_id)
+
+    with qtbot.waitSignal(widget.generation_finished, timeout=2000):
+        widget.generate_button.click()
+    wait_for_worker_thread_to_finish(qtbot, widget)
+
+    qtbot.waitUntil(lambda: widget.continuity_snapshot_view.toPlainText() == "Fresh state.", timeout=2000)
+
+
+def test_generate_skips_accept_scene_without_continuity_config(qtbot, monkeypatch):
+    scene_id = seed_scene()
+    events: list[RenderEvent] = [RenderContentDelta("Once upon a time."), RenderComplete("Once upon a time.")]
+    monkeypatch.setattr(rendering_column_module, "stream_render", _fake_stream(events))
+
+    def unexpected_accept_scene(config, session, story_id, accepted_scene_id):
+        raise AssertionError("accept_scene() should not be called without a continuity_config")
+
+    monkeypatch.setattr(rendering_column_module, "accept_scene", unexpected_accept_scene)
+
+    widget = RenderingColumn(FAKE_CONFIG)
+    qtbot.addWidget(widget)
+    widget.set_scene(scene_id)
+
+    with qtbot.waitSignal(widget.generation_finished, timeout=2000):
+        widget.generate_button.click()
+    wait_for_worker_thread_to_finish(qtbot, widget)
+
+    assert widget.continuity_snapshot_view.toPlainText() == NO_CONTINUITY_SNAPSHOT_TEXT
+
+
+def test_generate_shows_continuity_notice_when_accept_scene_fails(qtbot, monkeypatch):
+    scene_id = seed_scene()
+    events: list[RenderEvent] = [RenderContentDelta("Once upon a time."), RenderComplete("Once upon a time.")]
+    monkeypatch.setattr(rendering_column_module, "stream_render", _fake_stream(events))
+
+    def failing_accept_scene(config, session, story_id, accepted_scene_id):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(rendering_column_module, "accept_scene", failing_accept_scene)
+
+    widget = RenderingColumn(FAKE_CONFIG, FAKE_CONTINUITY_CONFIG)
+    qtbot.addWidget(widget)
+    widget.set_scene(scene_id)
+
+    with qtbot.waitSignal(widget.generation_finished, timeout=2000):
+        widget.generate_button.click()
+    wait_for_worker_thread_to_finish(qtbot, widget)
+
+    qtbot.waitUntil(lambda: "boom" in widget.continuity_notice_label.text(), timeout=2000)
+
+
+def test_activate_version_calls_regenerate_snapshots_and_updates_tab(qtbot, monkeypatch):
+    story_id, scene_id = seed_scene_with_story()
+    with session_scope() as session:
+        first = create_rendering(session, scene_id=scene_id, body="First version.")
+        set_active_rendering(session, first.id)
+        create_rendering(session, scene_id=scene_id, body="Second version.")
+
+    def fake_regenerate(config, session, regenerate_story_id, from_position):
+        assert config is FAKE_CONTINUITY_CONFIG
+        assert regenerate_story_id == story_id
+        assert from_position == 0
+        create_snapshot(session, regenerate_story_id, scene_id, "Fresh state.")
+
+    monkeypatch.setattr(rendering_column_module, "regenerate_snapshots_from", fake_regenerate)
+
+    widget = RenderingColumn(FAKE_CONFIG, FAKE_CONTINUITY_CONFIG)
+    qtbot.addWidget(widget)
+    widget.set_scene(scene_id)
+
+    widget.version_list.setCurrentRow(1)
+    widget.activate_button.click()
+
+    qtbot.waitUntil(lambda: widget.continuity_snapshot_view.toPlainText() == "Fresh state.", timeout=2000)
+
+
+def test_activate_version_shows_continuity_notice_when_regenerate_fails(qtbot, monkeypatch):
+    scene_id = seed_scene()
+    with session_scope() as session:
+        first = create_rendering(session, scene_id=scene_id, body="First version.")
+        set_active_rendering(session, first.id)
+        create_rendering(session, scene_id=scene_id, body="Second version.")
+
+    def failing_regenerate(config, session, story_id, from_position):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(rendering_column_module, "regenerate_snapshots_from", failing_regenerate)
+
+    widget = RenderingColumn(FAKE_CONFIG, FAKE_CONTINUITY_CONFIG)
+    qtbot.addWidget(widget)
+    widget.set_scene(scene_id)
+
+    widget.version_list.setCurrentRow(1)
+    widget.activate_button.click()
+
+    qtbot.waitUntil(lambda: "boom" in widget.continuity_notice_label.text(), timeout=2000)
+
+
+def test_selecting_a_version_does_not_change_continuity_snapshot_tab(qtbot):
+    story_id, scene_id = seed_scene_with_story()
+    with session_scope() as session:
+        first = create_rendering(session, scene_id=scene_id, body="First version.")
+        set_active_rendering(session, first.id)
+        create_rendering(session, scene_id=scene_id, body="Second version.")
+        set_active_rendering(session, first.id)
+        create_snapshot(session, story_id, scene_id, "Stable state.")
+
+    widget = RenderingColumn(FAKE_CONFIG)
+    qtbot.addWidget(widget)
+    widget.set_scene(scene_id)
+    assert widget.continuity_snapshot_view.toPlainText() == "Stable state."
+
+    widget.version_list.setCurrentRow(1)
+    assert widget.body_view.toPlainText() == "Second version."
+    assert widget.continuity_snapshot_view.toPlainText() == "Stable state."

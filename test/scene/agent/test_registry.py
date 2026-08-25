@@ -18,6 +18,8 @@ def test_load_registry_resolves_profile_with_all_fields(tmp_path):
             model: openrouter/anthropic/claude-3.5-sonnet
             api_base: https://openrouter.ai/api/v1
             api_key_env: OPENROUTER_API_KEY
+            max_tokens: 4096
+            reasoning_effort: low
         """,
     )
 
@@ -28,6 +30,8 @@ def test_load_registry_resolves_profile_with_all_fields(tmp_path):
             model="openrouter/anthropic/claude-3.5-sonnet",
             api_base="https://openrouter.ai/api/v1",
             api_key_env="OPENROUTER_API_KEY",
+            max_tokens=4096,
+            reasoning_effort="low",
         )
     }
 

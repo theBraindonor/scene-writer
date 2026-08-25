@@ -9,9 +9,9 @@ kind: scripted
 name: e007-continuity-snapshot-core
 regions:
 - core
-status: draft
+status: completed
 updated_by: John Hoff
-updated_on: '2026-08-24T14:26:17Z'
+updated_on: '2026-08-24T18:17:35Z'
 ---
 
 # Continuity snapshot — core service layer
@@ -88,3 +88,15 @@ else in this codebase.
 - `pdm run pytest` passes, including the new
   `test/scene/core/test_continuity_snapshot.py`.
 - `pdm run lint` reports no findings.
+
+## Log
+
+### Review - 2026-08-24T18:13:46Z - John Hoff
+
+Reviewed against the two applicable lore items (linting, unit-testing), both of which the Plan and Verification sections explicitly satisfy: pdm run lint is run to zero findings, and test/scene/core/test_continuity_snapshot.py is added mirroring the source path with concrete coverage for create/get/delete, both ValueError cases, get_preceding_snapshot's edge cases, and invalidate_snapshots_from's deletion/count behavior. Cross-checked the Requirements against the actually-landed ContinuitySnapshot model from e006 and against docs/data-model-v2.md / docs/prompt-guidance.md, which the Plan cites -- the described "at most one snapshot" invariant, the delete-only invalidation scope (regeneration correctly deferred to e008-continuity-snapshot-agent), and the "snapshot through the immediately preceding scene" semantics all match the docs, and the CRUD/validation style faithfully mirrors the cited rendering.py/scene_character.py/scene.py patterns already in src/scene/core. No lore conflicts found; PASS-WITH-NOTES.
+
+### Completed - 2026-08-24T18:17:35Z - John Hoff
+
+Continuity snapshot core service layer implemented as planned: src/scene/core/continuity_snapshot.py with create_snapshot (raising ValueError for a missing/cross-story scene or a duplicate (story_id, through_scene_id) pair), get_snapshot, get_preceding_snapshot (walks backward through earlier scenes by position to skip gaps left by partial invalidation), invalidate_snapshots_from (position-based cutoff, delete-only, returns the count deleted), and delete_snapshot -- all following the CRUD/ValueError conventions in rendering.py/scene_character.py/scene.py. Added test/scene/core/test_continuity_snapshot.py with 14 tests covering every function including both ValueError paths, the backward-walk gap case, and the invalidation count/no-op cases.
+
+test/scene/core/** is fully green (77 passed) and pdm run lint is clean. Full repo suite: 436 passed, 0 failed (up from 422 before this encounter). Next: e008-continuity-snapshot-agent.

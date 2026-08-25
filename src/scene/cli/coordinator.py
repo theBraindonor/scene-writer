@@ -32,4 +32,10 @@ def render() -> None:
         typer.echo(f"Could not resolve the rendering agent's model: {error}")
         raise typer.Exit(code=1) from error
 
-    RenderApp(config).run()
+    try:
+        continuity_config = get_llm_config(AgentRole.CONTINUITY_EDITING)
+    except (RuntimeError, TypeError) as error:
+        typer.echo(f"Could not resolve the continuity-editor agent's model: {error}. Continuing without it.")
+        continuity_config = None
+
+    RenderApp(config, continuity_config).run()

@@ -84,6 +84,30 @@ def test_complete_defaults_api_key_when_api_base_set_without_key(monkeypatch):
     assert captured["api_key"] == "not-needed"
 
 
+def test_complete_includes_max_tokens_and_reasoning_effort(monkeypatch):
+    captured = {}
+
+    def fake_completion(**kwargs):
+        captured.update(kwargs)
+        return "response"
+
+    monkeypatch.setattr(llm_module.litellm, "completion", fake_completion)
+
+    config = LLMConfig(
+        model="openrouter/aion-labs/aion-3.0-mini",
+        api_base=None,
+        api_key="sk-test",
+        max_tokens=4096,
+        reasoning_effort="low",
+    )
+    messages = [{"role": "user", "content": "hello"}]
+
+    complete(config, messages)
+
+    assert captured["max_tokens"] == 4096
+    assert captured["reasoning_effort"] == "low"
+
+
 def test_stream_complete_passes_stream_true(monkeypatch):
     captured = {}
 

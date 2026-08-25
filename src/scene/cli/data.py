@@ -7,6 +7,7 @@ from scene.core.character import (
     list_characters,
     update_character,
 )
+from scene.core.continuity_snapshot import delete_snapshot, get_snapshot
 from scene.core.location import create_location, delete_location, get_location, list_locations, update_location
 from scene.core.rendering import (
     create_rendering,
@@ -53,6 +54,8 @@ location_app = typer.Typer(help="Manage locations.")
 app.add_typer(location_app, name="location")
 scene_location_app = typer.Typer(help="Manage scene location assignments.")
 app.add_typer(scene_location_app, name="scene-location")
+continuity_snapshot_app = typer.Typer(help="Manage continuity snapshots.")
+app.add_typer(continuity_snapshot_app, name="continuity-snapshot")
 
 
 @story_app.command("create")
@@ -465,3 +468,26 @@ def scene_location_list_for_location(location_id: int) -> None:
         scenes = list_scenes_for_location(session, location_id)
         for scene in scenes:
             typer.echo(f"{scene.id}\t{scene.position}\t{scene.heading or ''}")
+
+
+@continuity_snapshot_app.command("get")
+def continuity_snapshot_get(story_id: int, through_scene_id: int) -> None:
+    with session_scope() as session:
+        snapshot = get_snapshot(session, story_id, through_scene_id)
+        if snapshot is None:
+            typer.echo(f"Continuity snapshot for story {story_id} through scene {through_scene_id} not found")
+            raise typer.Exit(code=1)
+        typer.echo(f"id: {snapshot.id}")
+        typer.echo(f"story_id: {snapshot.story_id}")
+        typer.echo(f"through_scene_id: {snapshot.through_scene_id}")
+        typer.echo(f"narrative_state: {snapshot.narrative_state}")
+
+
+@continuity_snapshot_app.command("delete")
+def continuity_snapshot_delete(story_id: int, through_scene_id: int) -> None:
+    with session_scope() as session:
+        deleted = delete_snapshot(session, story_id, through_scene_id)
+        if not deleted:
+            typer.echo(f"Continuity snapshot for story {story_id} through scene {through_scene_id} not found")
+            raise typer.Exit(code=1)
+        typer.echo(f"Deleted continuity snapshot for story {story_id} through scene {through_scene_id}")
