@@ -1,6 +1,5 @@
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
-    QComboBox,
     QFormLayout,
     QHBoxLayout,
     QLabel,
@@ -10,7 +9,6 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QPlainTextEdit,
     QPushButton,
-    QSpinBox,
     QVBoxLayout,
     QWidget,
 )
@@ -22,9 +20,11 @@ from scene.core.scene_character import assign_character, list_characters_for_sce
 from scene.core.scene_location import assign_location, list_locations_for_scene, unassign_location
 from scene.data.database import session_scope
 from scene.gui.list_sizing import fit_list_height_to_contents
+from scene.gui.scroll_guard import NoScrollComboBox, NoScrollSpinBox
 from scene.gui.section_heading import section_heading
 
 NO_POV_CHARACTER_LABEL = "(none)"
+SCENE_LIST_MAX_VISIBLE_ROWS = 4
 
 
 class ScenesWidget(QWidget):
@@ -41,20 +41,25 @@ class ScenesWidget(QWidget):
 
         self.story_id: int | None = None
         self.current_scene_id: int | None = None
+        self._dirty = False
+        self._loading_detail = False
 
         self.list_widget = QListWidget()
         self.list_widget.currentItemChanged.connect(self._on_current_item_changed)
 
         self.heading_edit = QLineEdit()
-        self.position_edit = QSpinBox()
+        self.position_edit = NoScrollSpinBox()
         self.position_edit.setMaximum(9999)
         self.brief_edit = QPlainTextEdit()
         self.required_actions_edit = QPlainTextEdit()
-        self.pov_character_combo = QComboBox()
+        self.pov_character_combo = NoScrollComboBox()
         self.desired_outcome_edit = QPlainTextEdit()
         self.target_length_edit = QLineEdit()
 
-        self.new_button = QPushButton("New Scene")
+        self.new_button = QPushButton("+")
+        self.new_button.setFixedSize(32, 28)
+        self.new_button.setToolTip("New Scene")
+        self.new_button.setStyleSheet("QPushButton { font-size: 16pt; font-weight: bold; color: green; }")
         self.new_button.clicked.connect(self._on_new_clicked)
 
         self.save_button = QPushButton("Save Scene")
@@ -72,10 +77,26 @@ class ScenesWidget(QWidget):
         form.addRow("Desired Outcome", self.desired_outcome_edit)
         form.addRow("Target Length", self.target_length_edit)
 
-        buttons = QHBoxLayout()
-        buttons.addWidget(self.new_button)
-        buttons.addWidget(self.save_button)
-        buttons.addWidget(self.delete_button)
+        for signal in (
+            self.heading_edit.textChanged,
+            self.position_edit.valueChanged,
+            self.brief_edit.textChanged,
+            self.required_actions_edit.textChanged,
+            self.pov_character_combo.currentIndexChanged,
+            self.desired_outcome_edit.textChanged,
+            self.target_length_edit.textChanged,
+        ):
+            signal.connect(self._on_field_changed)
+
+        heading_row = QHBoxLayout()
+        heading_row.addWidget(section_heading("Scenes"))
+        heading_row.addWidget(self.new_button)
+        heading_row.addStretch()
+
+        action_buttons = QHBoxLayout()
+        action_buttons.addStretch()
+        action_buttons.addWidget(self.save_button)
+        action_buttons.addWidget(self.delete_button)
 
         self.character_list = QListWidget()
         self.character_list.itemChanged.connect(self._on_character_item_changed)
@@ -84,15 +105,17 @@ class ScenesWidget(QWidget):
         self.location_list.itemChanged.connect(self._on_location_item_changed)
 
         layout = QVBoxLayout(self)
-        layout.addWidget(section_heading("Scenes"))
+        layout.addLayout(heading_row)
         layout.addWidget(self.list_widget)
+        layout.addLayout(action_buttons)
         layout.addLayout(form)
-        layout.addLayout(buttons)
         layout.addWidget(QLabel("Characters in Scene"))
         layout.addWidget(self.character_list)
         layout.addWidget(QLabel("Locations in Scene"))
         layout.addWidget(self.location_list)
         layout.addStretch()
+
+        self._update_button_states()
 
     def load(self, story_id: int) -> None:
         self.story_id = story_id
@@ -110,7 +133,7 @@ class ScenesWidget(QWidget):
                 if scene.id == select_scene_id:
                     self.list_widget.setCurrentItem(item)
         self.list_widget.blockSignals(False)
-        fit_list_height_to_contents(self.list_widget)
+        fit_list_height_to_contents(self.list_widget, max_visible_rows=SCENE_LIST_MAX_VISIBLE_ROWS)
         self._load_detail(select_scene_id)
         self.scene_selected.emit(select_scene_id)
 
@@ -130,32 +153,49 @@ class ScenesWidget(QWidget):
 
     def _load_detail(self, scene_id: int | None) -> None:
         self.current_scene_id = scene_id
-        if scene_id is None:
-            self.heading_edit.clear()
-            self.position_edit.setValue(0)
-            self.brief_edit.clear()
-            self.required_actions_edit.clear()
-            self.desired_outcome_edit.clear()
-            self.target_length_edit.clear()
-            self._load_pov_character_options(None)
-            self.character_list.clear()
-            fit_list_height_to_contents(self.character_list)
-            self.location_list.clear()
-            fit_list_height_to_contents(self.location_list)
+        self._loading_detail = True
+        try:
+            scene = None
+            if scene_id is not None:
+                with session_scope() as session:
+                    scenes = {scene.id: scene for scene in list_scenes(session, self.story_id)}
+                scene = scenes.get(scene_id)
+            if scene is None:
+                self.heading_edit.clear()
+                self.position_edit.setValue(0)
+                self.brief_edit.clear()
+                self.required_actions_edit.clear()
+                self.desired_outcome_edit.clear()
+                self.target_length_edit.clear()
+                self._load_pov_character_options(None)
+                self.character_list.clear()
+                fit_list_height_to_contents(self.character_list)
+                self.location_list.clear()
+                fit_list_height_to_contents(self.location_list)
+            else:
+                self.heading_edit.setText(scene.heading or "")
+                self.position_edit.setValue(scene.position)
+                self.brief_edit.setPlainText(scene.brief)
+                self.required_actions_edit.setPlainText(scene.required_actions or "")
+                self.desired_outcome_edit.setPlainText(scene.desired_outcome or "")
+                self.target_length_edit.setText(scene.target_length or "")
+                self._load_pov_character_options(scene.pov_character_id)
+                self._load_assignments(scene_id)
+        finally:
+            self._loading_detail = False
+        self._dirty = False
+        self._update_button_states()
+
+    def _on_field_changed(self, *_args: object) -> None:
+        if self._loading_detail:
             return
-        with session_scope() as session:
-            scenes = {scene.id: scene for scene in list_scenes(session, self.story_id)}
-        scene = scenes.get(scene_id)
-        if scene is None:
-            return
-        self.heading_edit.setText(scene.heading or "")
-        self.position_edit.setValue(scene.position)
-        self.brief_edit.setPlainText(scene.brief)
-        self.required_actions_edit.setPlainText(scene.required_actions or "")
-        self.desired_outcome_edit.setPlainText(scene.desired_outcome or "")
-        self.target_length_edit.setText(scene.target_length or "")
-        self._load_pov_character_options(scene.pov_character_id)
-        self._load_assignments(scene_id)
+        self._dirty = True
+        self._update_button_states()
+
+    def _update_button_states(self) -> None:
+        has_selection = self.current_scene_id is not None
+        self.delete_button.setEnabled(has_selection)
+        self.save_button.setEnabled(has_selection and self._dirty)
 
     def _load_pov_character_options(self, selected_character_id: int | None) -> None:
         self.pov_character_combo.blockSignals(True)

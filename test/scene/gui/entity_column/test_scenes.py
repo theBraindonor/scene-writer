@@ -23,6 +23,67 @@ def seed_story():
         return story.id
 
 
+def test_new_button_has_new_scene_tooltip(qtbot):
+    widget = ScenesWidget()
+    qtbot.addWidget(widget)
+
+    assert widget.new_button.toolTip() == "New Scene"
+
+
+def test_scene_list_caps_visible_rows_at_four(qtbot):
+    story_id = seed_story()
+
+    widget = ScenesWidget()
+    qtbot.addWidget(widget)
+    widget.load(story_id)
+
+    for _ in range(4):
+        widget.new_button.click()
+    height_at_four = widget.list_widget.height()
+
+    for _ in range(4):
+        widget.new_button.click()
+    height_at_eight = widget.list_widget.height()
+
+    assert height_at_eight == height_at_four
+
+
+def test_save_and_delete_disabled_with_no_scene_selected(qtbot):
+    widget = ScenesWidget()
+    qtbot.addWidget(widget)
+
+    assert not widget.save_button.isEnabled()
+    assert not widget.delete_button.isEnabled()
+
+
+def test_selecting_scene_enables_delete_but_not_save(qtbot):
+    story_id = seed_story()
+
+    widget = ScenesWidget()
+    qtbot.addWidget(widget)
+    widget.load(story_id)
+    widget.new_button.click()
+
+    assert widget.delete_button.isEnabled()
+    assert not widget.save_button.isEnabled()
+
+
+def test_editing_field_enables_save_and_saving_disables_it_again(qtbot):
+    story_id = seed_story()
+
+    widget = ScenesWidget()
+    qtbot.addWidget(widget)
+    widget.load(story_id)
+    widget.new_button.click()
+
+    widget.heading_edit.setText("Arrival")
+    assert widget.save_button.isEnabled()
+
+    widget.save_button.click()
+    assert not widget.save_button.isEnabled()
+    assert widget.delete_button.isEnabled()
+
+
 def test_new_scene_adds_and_selects(qtbot):
     story_id = seed_story()
 
