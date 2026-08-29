@@ -482,9 +482,6 @@ class RenderingColumn(QWidget):
         self._worker.event_received.connect(self._on_render_event)
         self._worker.error_occurred.connect(self._on_render_error)
         self._worker.finished.connect(self._on_generation_finished)
-        self._worker.finished.connect(self._thread.quit)
-        self._worker.finished.connect(self._worker.deleteLater)
-        self._thread.finished.connect(self._thread.deleteLater)
         self._thread.start()
 
     def _on_render_event(self, event: RenderEvent) -> None:
@@ -523,12 +520,16 @@ class RenderingColumn(QWidget):
         self._error_message = message
 
     def _on_generation_finished(self) -> None:
-        # `self._worker`/`self._thread` are deliberately left alone here (not set to `None`) —
-        # `worker.finished`/`thread.finished` are still mid-delivery to their own
-        # `deleteLater()` slots when this queued handler runs, and dropping the last Python
-        # reference before that completes can destroy the QThread while it's still shutting
-        # down. The next `_start_generation()` call overwrites both with fresh instances,
-        # exactly as `ChatPanel._on_worker_finished` leaves its own `_thread`/`_worker` alone.
+        # `worker.run()` has already returned by the time `finished` reaches this handler, so
+        # the thread's event loop has nothing left to do — `quit()` + `wait()` stop it
+        # synchronously and deterministically here, guaranteeing `isRunning()` is False before
+        # `self._thread`/`self._worker` can ever be garbage collected. A `deleteLater()` chain
+        # instead left teardown timing up to Qt's queued event delivery racing against Python's
+        # (possibly cyclic) garbage collector, which could free the QThread while its OS thread
+        # was still shutting down and crash the process ("QThread: Destroyed while thread is
+        # still running").
+        self._thread.quit()
+        self._thread.wait()
         scene_id = self._generating_scene_id
         assembled = self._content_text
         was_cancelled = self._cancel_requested
@@ -576,10 +577,6 @@ class RenderingColumn(QWidget):
             regenerate_snapshots_from(self._continuity_config, session, story_id, from_position)
 
     def _start_continuity_task(self, target: Callable[[], None], error_template: str) -> None:
-        # `self._continuity_thread`/`self._continuity_worker` are deliberately left alone once
-        # started (not set to `None` here) -- the next call overwrites both with fresh instances,
-        # exactly as `_start_generation()` leaves `self._thread`/`self._worker` alone; see that
-        # method's comment on `_on_generation_finished` for why.
         self._hide_continuity_notice()
         thread = QThread()
         worker = _ContinuityWorker(target)
@@ -587,14 +584,21 @@ class RenderingColumn(QWidget):
         thread.started.connect(worker.run)
         worker.error_occurred.connect(lambda message: self._show_continuity_notice(error_template.format(error=message)))
         worker.finished.connect(self._on_continuity_task_finished)
-        worker.finished.connect(thread.quit)
-        worker.finished.connect(worker.deleteLater)
-        thread.finished.connect(thread.deleteLater)
         self._continuity_thread = thread
         self._continuity_worker = worker
         thread.start()
 
     def _on_continuity_task_finished(self) -> None:
+        # `worker.run()` has already returned by the time `finished` reaches this handler, so
+        # the thread's event loop has nothing left to do — `quit()` + `wait()` stop it
+        # synchronously and deterministically here, guaranteeing `isRunning()` is False before
+        # `self._continuity_thread`/`self._continuity_worker` can ever be garbage collected. A
+        # `deleteLater()` chain instead left teardown timing up to Qt's queued event delivery
+        # racing against Python's (possibly cyclic) garbage collector, which could free the
+        # QThread while its OS thread was still shutting down and crash the process ("QThread:
+        # Destroyed while thread is still running").
+        self._continuity_thread.quit()
+        self._continuity_thread.wait()
         self._refresh_continuity_snapshot()
 
     # -- notices ---------------------------------------------------------------

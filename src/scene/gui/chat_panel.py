@@ -244,9 +244,6 @@ class ChatPanel(QWidget):
         self._thread.started.connect(self._worker.run)
         self._worker.event_received.connect(self._on_turn_event)
         self._worker.finished.connect(self._on_worker_finished)
-        self._worker.finished.connect(self._thread.quit)
-        self._worker.finished.connect(self._worker.deleteLater)
-        self._thread.finished.connect(self._thread.deleteLater)
         self._thread.start()
 
     def _on_turn_event(self, event: TurnEvent) -> None:
@@ -261,6 +258,16 @@ class ChatPanel(QWidget):
             block.add_tool_call(event.name)
 
     def _on_worker_finished(self) -> None:
+        # `worker.run()` has already returned by the time `finished` reaches this handler, so
+        # the thread's event loop has nothing left to do — `quit()` + `wait()` stop it
+        # synchronously and deterministically here, guaranteeing `isRunning()` is False before
+        # `self._thread`/`self._worker` can ever be garbage collected. A `deleteLater()` chain
+        # instead left teardown timing up to Qt's queued event delivery racing against Python's
+        # (possibly cyclic) garbage collector, which could free the QThread while its OS thread
+        # was still shutting down and crash the process ("QThread: Destroyed while thread is
+        # still running").
+        self._thread.quit()
+        self._thread.wait()
         self.input_edit.setEnabled(True)
         self._active_turn = None
         self.turn_completed.emit()

@@ -64,16 +64,6 @@ def seed_two_scene_story():
         return first.id, second.id
 
 
-def wait_for_worker_thread_to_finish(qtbot, widget):
-    # `generation_finished` only guarantees the worker's `run()` returned, not that the QThread
-    # it ran on has fully unwound and its deferred `deleteLater()` cleanup has run (see
-    # `_on_generation_finished`'s comment on why `_thread` is left referenced rather than
-    # nulled) — pumping the event loop briefly here lets that cleanup settle before the next
-    # test starts, without touching `widget._thread` itself (which may already be a dangling
-    # wrapper around a deleted C++ object by this point).
-    qtbot.wait(50)
-
-
 def test_shows_no_selection_message_by_default(qtbot):
     widget = RenderingColumn(FAKE_CONFIG)
     qtbot.addWidget(widget)
@@ -303,7 +293,6 @@ def test_generate_streams_and_creates_active_rendering(qtbot, monkeypatch):
 
     with qtbot.waitSignal(widget.generation_finished, timeout=2000):
         widget.generate_button.click()
-    wait_for_worker_thread_to_finish(qtbot, widget)
 
     with session_scope() as session:
         renderings = list_renderings(session, scene_id)
@@ -329,7 +318,10 @@ def test_body_view_scrolls_to_end_as_content_streams(qtbot, monkeypatch):
 
     with qtbot.waitSignal(widget.generation_finished, timeout=2000):
         widget.generate_button.click()
-    wait_for_worker_thread_to_finish(qtbot, widget)
+    # `_schedule_scroll_body_to_end` defers the actual scroll via `QTimer.singleShot(0, ...)`
+    # so the scrollbar's range has settled after layout; pump the event loop briefly so that
+    # deferred callback runs before asserting on the scroll position.
+    qtbot.wait(10)
 
     scrollbar = widget.body_view.verticalScrollBar()
     assert scrollbar.maximum() > 0
@@ -359,7 +351,6 @@ def test_cancel_generation_saves_partial_output(qtbot, monkeypatch):
     with qtbot.waitSignal(widget.generation_finished, timeout=2000):
         widget.cancel_button.click()
         gate.set()
-    wait_for_worker_thread_to_finish(qtbot, widget)
 
     with session_scope() as session:
         renderings = list_renderings(session, scene_id)
@@ -406,7 +397,6 @@ def test_render_button_and_checkbox_hide_while_generating(qtbot, monkeypatch):
 
     with qtbot.waitSignal(widget.generation_finished, timeout=2000):
         gate.set()
-    wait_for_worker_thread_to_finish(qtbot, widget)
 
     assert not widget.generate_button.isHidden()
     assert not widget.preview_prompt_checkbox.isHidden()
@@ -455,7 +445,6 @@ def test_preview_prompt_checked_and_proceed_starts_generation(qtbot, monkeypatch
 
     with qtbot.waitSignal(widget.generation_finished, timeout=2000):
         widget.generate_button.click()
-    wait_for_worker_thread_to_finish(qtbot, widget)
 
     with session_scope() as session:
         renderings = list_renderings(session, scene_id)
@@ -478,7 +467,6 @@ def test_stream_error_after_partial_content_saves_and_notifies(qtbot, monkeypatc
 
     with qtbot.waitSignal(widget.generation_finished, timeout=2000):
         widget.generate_button.click()
-    wait_for_worker_thread_to_finish(qtbot, widget)
 
     with session_scope() as session:
         renderings = list_renderings(session, scene_id)
@@ -506,7 +494,6 @@ def test_stream_error_before_any_content_saves_nothing_and_notifies(qtbot, monke
 
     with qtbot.waitSignal(widget.generation_finished, timeout=2000):
         widget.generate_button.click()
-    wait_for_worker_thread_to_finish(qtbot, widget)
 
     with session_scope() as session:
         assert list_renderings(session, scene_id) == []
@@ -533,7 +520,6 @@ def test_generate_accepts_scene_and_updates_continuity_tab(qtbot, monkeypatch):
 
     with qtbot.waitSignal(widget.generation_finished, timeout=2000):
         widget.generate_button.click()
-    wait_for_worker_thread_to_finish(qtbot, widget)
 
     qtbot.waitUntil(lambda: widget.continuity_snapshot_view.toPlainText() == "Fresh state.", timeout=2000)
 
@@ -554,7 +540,6 @@ def test_generate_skips_accept_scene_without_continuity_config(qtbot, monkeypatc
 
     with qtbot.waitSignal(widget.generation_finished, timeout=2000):
         widget.generate_button.click()
-    wait_for_worker_thread_to_finish(qtbot, widget)
 
     assert widget.continuity_snapshot_view.toPlainText() == NO_CONTINUITY_SNAPSHOT_TEXT
 
@@ -575,7 +560,6 @@ def test_generate_shows_continuity_notice_when_accept_scene_fails(qtbot, monkeyp
 
     with qtbot.waitSignal(widget.generation_finished, timeout=2000):
         widget.generate_button.click()
-    wait_for_worker_thread_to_finish(qtbot, widget)
 
     qtbot.waitUntil(lambda: "boom" in widget.continuity_notice_label.text(), timeout=2000)
 
