@@ -1,3 +1,4 @@
+from dataclasses import dataclass
 from typing import Any
 
 from sqlalchemy.orm import Session
@@ -41,16 +42,32 @@ def build_continuity_messages(session: Session, story_id: int, scene_id: int) ->
     ]
 
 
-def run_continuity_edit(config: LLMConfig, messages: list[dict[str, Any]]) -> str:
+@dataclass(frozen=True)
+class ContinuityEditResult:
+    narrative_state: str
+    narrative_state_reasoning: str = ""
+
+
+def run_continuity_edit(config: LLMConfig, messages: list[dict[str, Any]]) -> ContinuityEditResult:
     response = complete(config, messages)
-    return response.choices[0].message.content
+    message = response.choices[0].message
+    return ContinuityEditResult(
+        narrative_state=message.content,
+        narrative_state_reasoning=getattr(message, "reasoning_content", None) or "",
+    )
 
 
 def accept_scene(config: LLMConfig, session: Session, story_id: int, scene_id: int) -> ContinuitySnapshot:
     messages = build_continuity_messages(session, story_id, scene_id)
-    narrative_state = run_continuity_edit(config, messages)
+    result = run_continuity_edit(config, messages)
     delete_snapshot(session, story_id, scene_id)
-    return create_snapshot(session, story_id, scene_id, narrative_state)
+    return create_snapshot(
+        session,
+        story_id,
+        scene_id,
+        result.narrative_state,
+        narrative_state_reasoning=result.narrative_state_reasoning or None,
+    )
 
 
 def regenerate_snapshots_from(config: LLMConfig, session: Session, story_id: int, from_position: int) -> None:

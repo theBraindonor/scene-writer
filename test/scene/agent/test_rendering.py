@@ -305,8 +305,31 @@ def test_stream_render_yields_reasoning_deltas(monkeypatch):
     assert events == [
         RenderReasoningDelta("Thinking..."),
         RenderContentDelta("The scene."),
-        RenderComplete("The scene."),
+        RenderComplete(text="The scene.", reasoning="Thinking..."),
     ]
+
+
+def test_stream_render_aggregates_reasoning_across_multiple_chunks(monkeypatch):
+    script_stream(
+        monkeypatch,
+        [
+            make_chunk(reasoning_content="First, "),
+            make_chunk(reasoning_content="then second."),
+            make_chunk(content="The scene."),
+        ],
+    )
+
+    events = list(stream_render(make_config(), []))
+
+    assert events[-1] == RenderComplete(text="The scene.", reasoning="First, then second.")
+
+
+def test_stream_render_with_no_reasoning_deltas_yields_empty_reasoning(monkeypatch):
+    script_stream(monkeypatch, [make_chunk(content="Once "), make_chunk(content="upon a time.")])
+
+    events = list(stream_render(make_config(), []))
+
+    assert events[-1] == RenderComplete(text="Once upon a time.", reasoning="")
 
 
 def test_stream_render_empty_stream_yields_only_complete(monkeypatch):
@@ -314,4 +337,4 @@ def test_stream_render_empty_stream_yields_only_complete(monkeypatch):
 
     events = list(stream_render(make_config(), []))
 
-    assert events == [RenderComplete("")]
+    assert events == [RenderComplete(text="", reasoning="")]

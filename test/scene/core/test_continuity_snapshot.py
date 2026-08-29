@@ -42,6 +42,21 @@ def test_create_and_get_snapshot(session, story_id):
     fetched = get_snapshot(session, story_id, scene_id)
     assert fetched is not None
     assert fetched.narrative_state == "Mara is at the station."
+    assert fetched.narrative_state_reasoning is None
+
+
+def test_create_snapshot_with_reasoning(session, story_id):
+    scene_id = _make_scenes(session, story_id, 1)[0]
+
+    snapshot = create_snapshot(
+        session,
+        story_id,
+        scene_id,
+        "Mara is at the station.",
+        narrative_state_reasoning="Considered Mara's prior location.",
+    )
+
+    assert snapshot.narrative_state_reasoning == "Considered Mara's prior location."
 
 
 def test_get_snapshot_returns_none_when_missing(session, story_id):

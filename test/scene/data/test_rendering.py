@@ -37,6 +37,16 @@ def test_create_rendering(session_factory, scene_id):
 
         assert rendering.id is not None
         assert rendering.is_active == 0
+        assert rendering.body_reasoning is None
+
+
+def test_create_rendering_with_reasoning(session_factory, scene_id):
+    with session_factory() as session:
+        rendering = Rendering(scene_id=scene_id, body="Some prose", body_reasoning="Considered the scene brief.")
+        session.add(rendering)
+        session.commit()
+
+        assert rendering.body_reasoning == "Considered the scene brief."
 
 
 def test_is_active_must_be_boolean(session_factory, scene_id):

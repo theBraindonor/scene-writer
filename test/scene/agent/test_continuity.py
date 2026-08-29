@@ -6,6 +6,7 @@ import scene.agent.continuity as continuity_module
 from scene.agent.config import LLMConfig
 from scene.agent.continuity import (
     NO_PRIOR_NARRATIVE_STATE,
+    ContinuityEditResult,
     accept_scene,
     build_continuity_messages,
     regenerate_snapshots_from,
@@ -79,6 +80,7 @@ def test_build_continuity_messages_raises_when_no_active_rendering(session, stor
 @dataclass
 class FakeMessage:
     content: str
+    reasoning_content: str | None = None
 
 
 @dataclass
@@ -91,9 +93,9 @@ class FakeResponse:
     choices: list[FakeChoice] = field(default_factory=list)
 
 
-def script_complete(monkeypatch, content):
+def script_complete(monkeypatch, content, reasoning_content=None):
     def fake_complete(config, messages, tools=None):
-        return FakeResponse(choices=[FakeChoice(message=FakeMessage(content=content))])
+        return FakeResponse(choices=[FakeChoice(message=FakeMessage(content=content, reasoning_content=reasoning_content))])
 
     monkeypatch.setattr(continuity_module, "complete", fake_complete)
 
@@ -103,7 +105,17 @@ def test_run_continuity_edit_returns_response_content(monkeypatch):
 
     result = run_continuity_edit(make_config(), [])
 
-    assert result == "Updated narrative state."
+    assert result == ContinuityEditResult(narrative_state="Updated narrative state.", narrative_state_reasoning="")
+
+
+def test_run_continuity_edit_captures_reasoning_when_present(monkeypatch):
+    script_complete(monkeypatch, "Updated narrative state.", reasoning_content="Weighed prior events.")
+
+    result = run_continuity_edit(make_config(), [])
+
+    assert result == ContinuityEditResult(
+        narrative_state="Updated narrative state.", narrative_state_reasoning="Weighed prior events."
+    )
 
 
 def test_accept_scene_creates_snapshot(session, story_id, monkeypatch):
@@ -115,6 +127,17 @@ def test_accept_scene_creates_snapshot(session, story_id, monkeypatch):
 
     assert snapshot.narrative_state == "Mara is at the station."
     assert get_snapshot(session, story_id, scene.id).narrative_state == "Mara is at the station."
+    assert snapshot.narrative_state_reasoning is None
+
+
+def test_accept_scene_captures_reasoning_when_present(session, story_id, monkeypatch):
+    scene = create_scene(session, story_id=story_id, position=0, brief="First")
+    _activate(session, scene.id, "First scene prose.")
+    script_complete(monkeypatch, "Mara is at the station.", reasoning_content="Weighed prior events.")
+
+    snapshot = accept_scene(make_config(), session, story_id, scene.id)
+
+    assert snapshot.narrative_state_reasoning == "Weighed prior events."
 
 
 def test_accept_scene_replaces_existing_snapshot(session, story_id, monkeypatch):

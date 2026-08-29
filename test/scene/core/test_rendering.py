@@ -38,6 +38,17 @@ def test_create_and_get_rendering(session, scene_id):
     assert fetched is not None
     assert fetched.body == "Some prose"
     assert fetched.is_active == 0
+    assert fetched.body_reasoning is None
+
+
+def test_create_rendering_with_reasoning(session, scene_id):
+    rendering = create_rendering(
+        session, scene_id=scene_id, body="Some prose", body_reasoning="Considered the scene brief."
+    )
+
+    fetched = get_rendering(session, rendering.id)
+
+    assert fetched.body_reasoning == "Considered the scene brief."
 
 
 def test_get_missing_rendering_returns_none(session):

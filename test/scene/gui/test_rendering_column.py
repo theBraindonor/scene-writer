@@ -16,6 +16,7 @@ from scene.data.database import session_scope
 from scene.gui.rendering_column import (
     BODY_FONT_SCALE,
     CANCELLED_SAVED_TEXT,
+    CONTINUITY_SNAPSHOT_REASONING_TAB_LABEL,
     CONTINUITY_SNAPSHOT_TAB_LABEL,
     DELETE_ACTIVE_RENDERING_TEXT,
     DELETE_SOLE_RENDERING_TEXT,
@@ -24,8 +25,10 @@ from scene.gui.rendering_column import (
     GENERATION_ERROR_EMPTY_TEXT,
     GENERATION_ERROR_SAVED_TEXT,
     NO_CONTINUITY_SNAPSHOT_TEXT,
+    NO_REASONING_TEXT,
     NO_RENDERINGS_TEXT,
     NO_SCENE_SELECTED_TEXT,
+    PROSE_REASONING_TAB_LABEL,
     PROSE_TAB_LABEL,
     RENDER_LABEL,
     RenderingColumn,
@@ -85,12 +88,18 @@ def test_body_view_and_continuity_snapshot_view_are_separate_tabs(qtbot):
     widget = RenderingColumn(FAKE_CONFIG)
     qtbot.addWidget(widget)
 
-    assert widget.tabs.count() == 2
+    assert widget.tabs.count() == 4
     assert widget.tabs.tabText(0) == PROSE_TAB_LABEL
-    assert widget.tabs.tabText(1) == CONTINUITY_SNAPSHOT_TAB_LABEL
+    assert widget.tabs.tabText(1) == PROSE_REASONING_TAB_LABEL
+    assert widget.tabs.tabText(2) == CONTINUITY_SNAPSHOT_TAB_LABEL
+    assert widget.tabs.tabText(3) == CONTINUITY_SNAPSHOT_REASONING_TAB_LABEL
     assert widget.tabs.widget(0) is widget.body_view
-    assert widget.tabs.widget(1) is widget.continuity_snapshot_view
+    assert widget.tabs.widget(1) is widget.body_reasoning_view
+    assert widget.tabs.widget(2) is widget.continuity_snapshot_view
+    assert widget.tabs.widget(3) is widget.continuity_snapshot_reasoning_view
     assert widget.continuity_snapshot_view.isReadOnly()
+    assert widget.body_reasoning_view.isReadOnly()
+    assert widget.continuity_snapshot_reasoning_view.isReadOnly()
 
 
 def test_continuity_snapshot_tab_shows_placeholder_when_none_exists(qtbot):
@@ -115,6 +124,46 @@ def test_continuity_snapshot_tab_shows_existing_snapshot(qtbot):
     assert widget.continuity_snapshot_view.toPlainText() == "Mara is at the station."
 
 
+def test_continuity_snapshot_reasoning_tab_shows_placeholder_when_no_snapshot_exists(qtbot):
+    scene_id = seed_scene()
+
+    widget = RenderingColumn(FAKE_CONFIG)
+    qtbot.addWidget(widget)
+    widget.set_scene(scene_id)
+
+    assert widget.continuity_snapshot_reasoning_view.toPlainText() == NO_CONTINUITY_SNAPSHOT_TEXT
+
+
+def test_continuity_snapshot_reasoning_tab_shows_no_reasoning_fallback(qtbot):
+    story_id, scene_id = seed_scene_with_story()
+    with session_scope() as session:
+        create_snapshot(session, story_id, scene_id, "Mara is at the station.")
+
+    widget = RenderingColumn(FAKE_CONFIG)
+    qtbot.addWidget(widget)
+    widget.set_scene(scene_id)
+
+    assert widget.continuity_snapshot_reasoning_view.toPlainText() == NO_REASONING_TEXT
+
+
+def test_continuity_snapshot_reasoning_tab_shows_captured_reasoning(qtbot):
+    story_id, scene_id = seed_scene_with_story()
+    with session_scope() as session:
+        create_snapshot(
+            session,
+            story_id,
+            scene_id,
+            "Mara is at the station.",
+            narrative_state_reasoning="Considered Mara's prior location.",
+        )
+
+    widget = RenderingColumn(FAKE_CONFIG)
+    qtbot.addWidget(widget)
+    widget.set_scene(scene_id)
+
+    assert widget.continuity_snapshot_reasoning_view.toPlainText() == "Considered Mara's prior location."
+
+
 def test_shows_no_renderings_message_and_enables_generate(qtbot):
     scene_id = seed_scene()
 
@@ -124,6 +173,7 @@ def test_shows_no_renderings_message_and_enables_generate(qtbot):
 
     assert widget.stack.currentWidget() is widget.content_widget
     assert widget.body_view.toPlainText() == NO_RENDERINGS_TEXT
+    assert widget.body_reasoning_view.toPlainText() == NO_RENDERINGS_TEXT
     assert widget.version_list.count() == 0
     assert widget.generate_button.text() == RENDER_LABEL
     assert widget.generate_button.isEnabled()
@@ -146,7 +196,23 @@ def test_version_list_shows_active_marker_and_active_body(qtbot):
     assert widget.version_list.item(0).text() == "○ v1"
     assert widget.version_list.item(1).text() == "● v2 (active)"
     assert widget.body_view.toPlainText() == "Second version."
+    assert widget.body_reasoning_view.toPlainText() == NO_REASONING_TEXT
     assert widget.generate_button.text() == RENDER_LABEL
+
+
+def test_version_list_shows_captured_body_reasoning(qtbot):
+    scene_id = seed_scene()
+    with session_scope() as session:
+        rendering = create_rendering(
+            session, scene_id=scene_id, body="First version.", body_reasoning="Considered the scene brief."
+        )
+        set_active_rendering(session, rendering.id)
+
+    widget = RenderingColumn(FAKE_CONFIG)
+    qtbot.addWidget(widget)
+    widget.set_scene(scene_id)
+
+    assert widget.body_reasoning_view.toPlainText() == "Considered the scene brief."
 
 
 def test_selecting_a_version_updates_body_view(qtbot):
@@ -154,16 +220,20 @@ def test_selecting_a_version_updates_body_view(qtbot):
     with session_scope() as session:
         first = create_rendering(session, scene_id=scene_id, body="First version.")
         set_active_rendering(session, first.id)
-        create_rendering(session, scene_id=scene_id, body="Second version.")
+        create_rendering(
+            session, scene_id=scene_id, body="Second version.", body_reasoning="Considered continuity."
+        )
         set_active_rendering(session, first.id)
 
     widget = RenderingColumn(FAKE_CONFIG)
     qtbot.addWidget(widget)
     widget.set_scene(scene_id)
     assert widget.body_view.toPlainText() == "First version."
+    assert widget.body_reasoning_view.toPlainText() == NO_REASONING_TEXT
 
     widget.version_list.setCurrentRow(1)
     assert widget.body_view.toPlainText() == "Second version."
+    assert widget.body_reasoning_view.toPlainText() == "Considered continuity."
 
 
 def test_activate_version_makes_it_active(qtbot):
@@ -298,10 +368,34 @@ def test_generate_streams_and_creates_active_rendering(qtbot, monkeypatch):
         renderings = list_renderings(session, scene_id)
     assert len(renderings) == 1
     assert renderings[0].body == "Once upon a time."
+    assert renderings[0].body_reasoning == "Thinking... "
     assert renderings[0].is_active
     assert widget.body_view.toPlainText() == "Once upon a time."
+    assert widget.body_reasoning_view.toPlainText() == "Thinking... "
     assert widget.generate_button.text() == RENDER_LABEL
     assert widget.generate_button.isEnabled()
+
+
+def test_generate_with_no_reasoning_deltas_saves_none_and_shows_fallback(qtbot, monkeypatch):
+    scene_id = seed_scene()
+    events: list[RenderEvent] = [
+        RenderContentDelta("Once "),
+        RenderContentDelta("upon a time."),
+        RenderComplete("Once upon a time."),
+    ]
+    monkeypatch.setattr(rendering_column_module, "stream_render", _fake_stream(events))
+
+    widget = RenderingColumn(FAKE_CONFIG)
+    qtbot.addWidget(widget)
+    widget.set_scene(scene_id)
+
+    with qtbot.waitSignal(widget.generation_finished, timeout=2000):
+        widget.generate_button.click()
+
+    with session_scope() as session:
+        renderings = list_renderings(session, scene_id)
+    assert renderings[0].body_reasoning is None
+    assert widget.body_reasoning_view.toPlainText() == NO_REASONING_TEXT
 
 
 def test_body_view_scrolls_to_end_as_content_streams(qtbot, monkeypatch):

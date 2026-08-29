@@ -45,6 +45,21 @@ def test_create_continuity_snapshot(session_factory, story_id, scene_id):
         session.commit()
 
         assert snapshot.id is not None
+        assert snapshot.narrative_state_reasoning is None
+
+
+def test_create_continuity_snapshot_with_reasoning(session_factory, story_id, scene_id):
+    with session_factory() as session:
+        snapshot = ContinuitySnapshot(
+            story_id=story_id,
+            through_scene_id=scene_id,
+            narrative_state="Mara is at the station.",
+            narrative_state_reasoning="Considered Mara's prior location before updating it.",
+        )
+        session.add(snapshot)
+        session.commit()
+
+        assert snapshot.narrative_state_reasoning == "Considered Mara's prior location before updating it."
 
 
 def test_narrative_state_must_not_be_blank(session_factory, story_id, scene_id):

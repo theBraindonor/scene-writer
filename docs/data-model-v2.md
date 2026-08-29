@@ -320,6 +320,7 @@ the scene or building continuity context for later scenes.
 | `id` | `INTEGER` | Yes | SQLite-generated, auto-incrementing primary key. |
 | `scene_id` | `INTEGER` | Yes | The owning scene's `id`. |
 | `body` | `TEXT` | Yes | Full rendered prose for the scene. |
+| `body_reasoning` | `TEXT` | No | The model's reasoning/thinking output while generating `body`, if the model used supports and returned one. |
 | `is_active` | `INTEGER` | Yes | `1` when this is the scene's active rendering; otherwise `0`. |
 
 ```sql
@@ -327,6 +328,7 @@ CREATE TABLE rendering (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     scene_id INTEGER NOT NULL REFERENCES scene(id) ON DELETE CASCADE,
     body TEXT NOT NULL,
+    body_reasoning TEXT,
     is_active INTEGER NOT NULL DEFAULT 0 CHECK (is_active IN (0, 1))
 );
 
@@ -362,6 +364,7 @@ produced and consumed efficiently by smaller self-hosted models.
 | `story_id` | `INTEGER` | Yes | The story whose current narrative state is represented. |
 | `through_scene_id` | `INTEGER` | Yes | The last scene whose accepted active rendering is reflected by this snapshot. |
 | `narrative_state` | `TEXT` | Yes | Compact text state used as continuity context for the next scene. |
+| `narrative_state_reasoning` | `TEXT` | No | The model's reasoning/thinking output while generating `narrative_state`, if the model used supports and returned one. |
 
 There is at most one snapshot for a given story and `through_scene_id`. When the active
 rendering for that scene changes, the application must delete or replace its snapshot
@@ -375,6 +378,7 @@ CREATE TABLE continuity_snapshot (
     story_id INTEGER NOT NULL REFERENCES story(id) ON DELETE CASCADE,
     through_scene_id INTEGER NOT NULL REFERENCES scene(id) ON DELETE CASCADE,
     narrative_state TEXT NOT NULL CHECK (length(trim(narrative_state)) > 0),
+    narrative_state_reasoning TEXT,
     UNIQUE (story_id, through_scene_id)
 );
 
@@ -400,3 +404,17 @@ When constructing a scene-generation prompt, use:
 
 Use the active `rendering` only as generated prose context. Do not overwrite the
 human-authored story or scene fields with generated prose.
+
+## Amendments
+
+### 2026-08-29 — Capture model reasoning on rendering and continuity snapshot
+
+Added `rendering.body_reasoning` and `continuity_snapshot.narrative_state_reasoning`,
+both nullable `TEXT` columns. Some models used for scene rendering and
+continuity-snapshot generation return a reasoning/thinking trace alongside their
+final answer; these columns persist that trace so it can be reviewed after
+generation completes, rather than being discarded once the live stream ends. Both
+columns are optional because many models — including the smaller self-hosted
+models this project targets for continuity-snapshot generation — do not return a
+reasoning output at all; callers store `NULL` in that case rather than an empty
+string.

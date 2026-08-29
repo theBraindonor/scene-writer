@@ -4,8 +4,8 @@ from sqlalchemy.orm import Session
 from scene.data.rendering import Rendering
 
 
-def create_rendering(session: Session, scene_id: int, body: str) -> Rendering:
-    rendering = Rendering(scene_id=scene_id, body=body)
+def create_rendering(session: Session, scene_id: int, body: str, body_reasoning: str | None = None) -> Rendering:
+    rendering = Rendering(scene_id=scene_id, body=body, body_reasoning=body_reasoning)
     session.add(rendering)
     session.commit()
     session.refresh(rendering)

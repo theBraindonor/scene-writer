@@ -19,4 +19,5 @@ class Rendering(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     scene_id: Mapped[int] = mapped_column(ForeignKey("scene.id", ondelete="CASCADE"), nullable=False)
     body: Mapped[str] = mapped_column(String, nullable=False)
+    body_reasoning: Mapped[str | None] = mapped_column(String, nullable=True)
     is_active: Mapped[int] = mapped_column(Integer, nullable=False, default=0)

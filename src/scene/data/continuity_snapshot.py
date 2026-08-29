@@ -20,3 +20,4 @@ class ContinuitySnapshot(Base):
     story_id: Mapped[int] = mapped_column(ForeignKey("story.id", ondelete="CASCADE"), nullable=False)
     through_scene_id: Mapped[int] = mapped_column(ForeignKey("scene.id", ondelete="CASCADE"), nullable=False)
     narrative_state: Mapped[str] = mapped_column(String, nullable=False)
+    narrative_state_reasoning: Mapped[str | None] = mapped_column(String, nullable=True)

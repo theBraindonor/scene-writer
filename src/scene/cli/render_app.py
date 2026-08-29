@@ -403,6 +403,7 @@ class RenderScreen(Screen[None]):
         self.app.call_from_thread(self._start_output)
 
         content_parts: list[str] = []
+        reasoning_parts: list[str] = []
         cancelled = False
         stream = stream_render(self.app.config, messages)
         while True:
@@ -417,13 +418,15 @@ class RenderScreen(Screen[None]):
                 content_parts.append(event.text)
                 self.app.call_from_thread(self._append_output, event.text)
             elif isinstance(event, RenderReasoningDelta):
+                reasoning_parts.append(event.text)
                 self.app.call_from_thread(self._append_output, event.text)
 
         assembled = "".join(content_parts)
+        body_reasoning = "".join(reasoning_parts) or None
 
         if assembled:
             with session_scope() as session:
-                rendering = create_rendering(session, scene_id=scene_id, body=assembled)
+                rendering = create_rendering(session, scene_id=scene_id, body=assembled, body_reasoning=body_reasoning)
                 set_active_rendering(session, rendering.id)
                 if self.app.continuity_config is not None:
                     try:

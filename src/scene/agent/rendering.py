@@ -140,6 +140,7 @@ class RenderContentDelta:
 @dataclass(frozen=True)
 class RenderComplete:
     text: str
+    reasoning: str = ""
 
 
 RenderEvent = RenderReasoningDelta | RenderContentDelta | RenderComplete
@@ -147,12 +148,14 @@ RenderEvent = RenderReasoningDelta | RenderContentDelta | RenderComplete
 
 def stream_render(config: LLMConfig, messages: list[dict[str, Any]]) -> Iterator[RenderEvent]:
     content_parts: list[str] = []
+    reasoning_parts: list[str] = []
 
     for chunk in stream_complete(config, messages):
         delta = chunk.choices[0].delta
 
         reasoning_piece = getattr(delta, "reasoning_content", None)
         if reasoning_piece:
+            reasoning_parts.append(reasoning_piece)
             yield RenderReasoningDelta(reasoning_piece)
 
         content_piece = getattr(delta, "content", None)
@@ -160,4 +163,4 @@ def stream_render(config: LLMConfig, messages: list[dict[str, Any]]) -> Iterator
             content_parts.append(content_piece)
             yield RenderContentDelta(content_piece)
 
-    yield RenderComplete("".join(content_parts))
+    yield RenderComplete(text="".join(content_parts), reasoning="".join(reasoning_parts))

@@ -54,7 +54,10 @@ GENERATION_ERROR_EMPTY_TEXT = "Generation error: {error}. Nothing had been gener
 CONTINUITY_UPDATE_FAILED_TEXT = "Continuity snapshot update failed: {error}"
 CONTINUITY_REGENERATE_FAILED_TEXT = "Continuity snapshot regeneration failed: {error}"
 PROSE_TAB_LABEL = "Prose"
+PROSE_REASONING_TAB_LABEL = "Prose Reasoning"
 CONTINUITY_SNAPSHOT_TAB_LABEL = "Continuity Snapshot"
+CONTINUITY_SNAPSHOT_REASONING_TAB_LABEL = "Continuity Snapshot Reasoning"
+NO_REASONING_TEXT = "The model used did not support a reasoning output."
 RENDER_LABEL = "Render"
 PREVIEW_PROMPT_LABEL = "Preview Prompt"
 BODY_FONT_SCALE = 1.5
@@ -203,6 +206,7 @@ class RenderingColumn(QWidget):
         self._generating = False
         self._generating_scene_id: int | None = None
         self._content_text = ""
+        self._reasoning_text = ""
         self._display_text = ""
         self._cancel_requested = False
         self._error_message: str | None = None
@@ -220,12 +224,20 @@ class RenderingColumn(QWidget):
         body_font.setPointSize(round(body_font.pointSize() * BODY_FONT_SCALE))
         self.body_view.setFont(body_font)
 
+        self.body_reasoning_view = QPlainTextEdit()
+        self.body_reasoning_view.setReadOnly(True)
+
         self.continuity_snapshot_view = QPlainTextEdit()
         self.continuity_snapshot_view.setReadOnly(True)
 
+        self.continuity_snapshot_reasoning_view = QPlainTextEdit()
+        self.continuity_snapshot_reasoning_view.setReadOnly(True)
+
         self.tabs = QTabWidget()
         self.tabs.addTab(self.body_view, PROSE_TAB_LABEL)
+        self.tabs.addTab(self.body_reasoning_view, PROSE_REASONING_TAB_LABEL)
         self.tabs.addTab(self.continuity_snapshot_view, CONTINUITY_SNAPSHOT_TAB_LABEL)
+        self.tabs.addTab(self.continuity_snapshot_reasoning_view, CONTINUITY_SNAPSHOT_REASONING_TAB_LABEL)
 
         self.notice_label = QLabel()
         self.notice_label.setWordWrap(True)
@@ -362,9 +374,13 @@ class RenderingColumn(QWidget):
         self.selected_rendering_id = target_id
         if not renderings:
             self.body_view.setPlainText(NO_RENDERINGS_TEXT)
+            self.body_reasoning_view.setPlainText(NO_RENDERINGS_TEXT)
         else:
             selected = next((rendering for rendering in renderings if rendering.id == target_id), None)
             self.body_view.setPlainText(selected.body if selected is not None else "")
+            self.body_reasoning_view.setPlainText(
+                (selected.body_reasoning or NO_REASONING_TEXT) if selected is not None else ""
+            )
 
         self.activate_button.setEnabled(target_id is not None and not busy)
         self.delete_button.setEnabled(target_id is not None and not busy)
@@ -374,12 +390,19 @@ class RenderingColumn(QWidget):
     def _refresh_continuity_snapshot(self) -> None:
         if self.current_scene_id is None or self.current_story_id is None:
             self.continuity_snapshot_view.setPlainText("")
+            self.continuity_snapshot_reasoning_view.setPlainText("")
             return
         with session_scope() as session:
             snapshot = get_snapshot(session, self.current_story_id, self.current_scene_id)
         self.continuity_snapshot_view.setPlainText(
             snapshot.narrative_state if snapshot is not None else NO_CONTINUITY_SNAPSHOT_TEXT
         )
+        if snapshot is not None:
+            self.continuity_snapshot_reasoning_view.setPlainText(
+                snapshot.narrative_state_reasoning or NO_REASONING_TEXT
+            )
+        else:
+            self.continuity_snapshot_reasoning_view.setPlainText(NO_CONTINUITY_SNAPSHOT_TEXT)
 
     def _on_version_selected(self, current: QListWidgetItem | None, previous: QListWidgetItem | None) -> None:
         if current is None:
@@ -391,6 +414,7 @@ class RenderingColumn(QWidget):
             rendering = get_rendering(session, rendering_id)
         if rendering is not None:
             self.body_view.setPlainText(rendering.body)
+            self.body_reasoning_view.setPlainText(rendering.body_reasoning or NO_REASONING_TEXT)
 
     # -- activate / delete ----------------------------------------------------
 
@@ -465,6 +489,7 @@ class RenderingColumn(QWidget):
         self._generating = True
         self._generating_scene_id = self.current_scene_id
         self._content_text = ""
+        self._reasoning_text = ""
         self._display_text = ""
         self._cancel_requested = False
         self._error_message = None
@@ -491,6 +516,7 @@ class RenderingColumn(QWidget):
             self.body_view.setPlainText(self._display_text)
             self._schedule_scroll_body_to_end()
         elif isinstance(event, RenderReasoningDelta):
+            self._reasoning_text += event.text
             self._display_text += event.text
             self.body_view.setPlainText(self._display_text)
             self._schedule_scroll_body_to_end()
@@ -532,12 +558,14 @@ class RenderingColumn(QWidget):
         self._thread.wait()
         scene_id = self._generating_scene_id
         assembled = self._content_text
+        body_reasoning = self._reasoning_text or None
         was_cancelled = self._cancel_requested
         error_message = self._error_message
 
         self._generating = False
         self._generating_scene_id = None
         self._content_text = ""
+        self._reasoning_text = ""
         self._display_text = ""
         self._cancel_requested = False
         self._error_message = None
@@ -545,7 +573,7 @@ class RenderingColumn(QWidget):
 
         if assembled:
             with session_scope() as session:
-                rendering = create_rendering(session, scene_id=scene_id, body=assembled)
+                rendering = create_rendering(session, scene_id=scene_id, body=assembled, body_reasoning=body_reasoning)
                 set_active_rendering(session, rendering.id)
                 generated_scene = get_scene(session, scene_id)
             if self._continuity_config is not None and generated_scene is not None:

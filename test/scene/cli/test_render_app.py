@@ -164,6 +164,30 @@ async def test_render_next_scene_streams_and_persists_active_rendering(monkeypat
             active = [rendering for rendering in renderings if rendering.is_active]
             assert len(active) == 1
             assert active[0].body == "Once upon a time."
+            assert active[0].body_reasoning is None
+
+
+async def test_render_next_scene_persists_reasoning_when_present(monkeypatch):
+    story_id, scene_id = seed_story_with_scene()
+    script_stream(
+        monkeypatch,
+        [make_chunk(reasoning_content="Thinking it through."), make_chunk(content="Once upon a time.")],
+    )
+
+    app = RenderApp(make_config())
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await pilot.click(f"#story-{story_id}")
+        await pilot.pause()
+
+        await pilot.click("#render-next")
+        await app.workers.wait_for_complete()
+        await pilot.pause()
+
+        with session_scope() as session:
+            renderings = list_renderings(session, scene_id)
+            active = [rendering for rendering in renderings if rendering.is_active]
+            assert active[0].body_reasoning == "Thinking it through."
 
 
 async def test_output_pane_auto_scrolls_on_every_streamed_chunk(monkeypatch):

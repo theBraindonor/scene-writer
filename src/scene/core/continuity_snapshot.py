@@ -6,7 +6,11 @@ from scene.data.scene import Scene
 
 
 def create_snapshot(
-    session: Session, story_id: int, through_scene_id: int, narrative_state: str
+    session: Session,
+    story_id: int,
+    through_scene_id: int,
+    narrative_state: str,
+    narrative_state_reasoning: str | None = None,
 ) -> ContinuitySnapshot:
     scene = session.get(Scene, through_scene_id)
     if scene is None:
@@ -16,7 +20,12 @@ def create_snapshot(
     if get_snapshot(session, story_id, through_scene_id) is not None:
         raise ValueError(f"A continuity snapshot for story {story_id} through scene {through_scene_id} already exists")
 
-    snapshot = ContinuitySnapshot(story_id=story_id, through_scene_id=through_scene_id, narrative_state=narrative_state)
+    snapshot = ContinuitySnapshot(
+        story_id=story_id,
+        through_scene_id=through_scene_id,
+        narrative_state=narrative_state,
+        narrative_state_reasoning=narrative_state_reasoning,
+    )
     session.add(snapshot)
     session.commit()
     session.refresh(snapshot)
