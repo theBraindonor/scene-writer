@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 
 from scene.agent.config import LLMConfig
 from scene.agent.llm import stream_complete
+from scene.agent.prompts import load_prompts
 from scene.core.character import get_character
 from scene.core.continuity_snapshot import get_preceding_snapshot
 from scene.core.rendering import list_renderings
@@ -26,8 +27,17 @@ def find_next_unrendered_scene(session: Session, story_id: int) -> Scene | None:
     return None
 
 
-def _scene_brief_text(session: Session, scene: Scene) -> str:
-    lines = ["SCENE BRIEF"]
+def _headed(heading: str, body: str) -> str:
+    return f"## {heading}\n\n{body}"
+
+
+def _requirements_section(requirements: tuple[str, ...]) -> str:
+    bullet_lines = "\n".join(f"- {item}" for item in requirements)
+    return _headed("Requirements", bullet_lines)
+
+
+def _scene_brief_fields_text(session: Session, scene: Scene) -> str:
+    lines: list[str] = []
     if scene.heading:
         lines.append(f"Heading: {scene.heading}")
     if scene.pov_character_id is not None:
@@ -60,12 +70,6 @@ def _location_card(location: Location) -> str:
     return "\n".join(lines)
 
 
-def _scene_reference_cards(session: Session, scene_id: int) -> str:
-    cards = [_character_card(character) for character in list_characters_for_scene(session, scene_id)]
-    cards.extend(_location_card(location) for location in list_locations_for_scene(session, scene_id))
-    return "\n\n".join(cards)
-
-
 def _active_rendering_body_or_none(session: Session, scene: Scene) -> str | None:
     active = next((rendering for rendering in list_renderings(session, scene.id) if rendering.is_active), None)
     return active.body if active is not None else None
@@ -81,28 +85,26 @@ def build_render_messages(session: Session, story_id: int, target_scene_id: int)
     if target is None:
         raise ValueError(f"Scene {target_scene_id} not found in story {story_id}.")
 
-    fiction_prefix = (
-        "You are a fiction writer drafting a scene of an ongoing story. This is a work of "
-        "fiction: the story brief and this scene's details have already been laid out ahead "
-        "of time by the story's author, so treat them as established facts of the story "
-        "world rather than something to invent, question, or reconsider. Your job is only to "
-        "write the requested scene's prose."
-    )
-    fiction_suffix = (
-        "The story's author will give you one scene at a time, in the order that they will "
-        "appear in the larger story. You will need to complete the scene so that the next "
-        "scene of the story can be written. It is important that you include all required "
-        "elements—they are intended to provide the spine of continuity for the story."
-    )
-    system_lines = [fiction_prefix, f"## Story Brief\n\n{story.story_brief}"]
+    prompts = load_prompts()
+    system_lines = [
+        prompts.rendering_fiction_prefix,
+        _requirements_section(prompts.rendering_requirements),
+        _headed("Story Brief", story.story_brief),
+    ]
     if story.style_guidance:
-        system_lines.append(f"## Style Guidance\n\n{story.style_guidance}")
+        system_lines.append(_headed("Style Guidance", story.style_guidance))
     if story.generation_guideance:
-        system_lines.append(f"## Generation Guidance\n\n{story.generation_guideance}")
-    reference_cards = _scene_reference_cards(session, target.id)
-    if reference_cards:
-        system_lines.append(reference_cards)
-    system_lines.append(fiction_suffix)
+        system_lines.append(_headed("Generation Guidance", story.generation_guideance))
+
+    characters = list_characters_for_scene(session, target.id)
+    if characters:
+        system_lines.append(_headed("Cast of Characters", "\n\n".join(_character_card(c) for c in characters)))
+
+    locations = list_locations_for_scene(session, target.id)
+    if locations:
+        system_lines.append(_headed("Locations", "\n\n".join(_location_card(loc) for loc in locations)))
+
+    system_lines.append(_headed("Scene Generation Instructions", prompts.rendering_scene_generation_instructions))
     messages: list[dict[str, Any]] = [{"role": "system", "content": "\n\n".join(system_lines)}]
 
     target_index = scenes.index(target)
@@ -112,13 +114,15 @@ def build_render_messages(session: Session, story_id: int, target_scene_id: int)
     if preceding_scene is not None:
         preceding_snapshot = get_preceding_snapshot(session, story_id, target.id)
         if preceding_snapshot is not None:
-            user_sections.append(f"CURRENT CANON\n\n{preceding_snapshot.narrative_state}")
+            user_sections.append(_headed("Current Canon", preceding_snapshot.narrative_state))
 
         recent_prose = _active_rendering_body_or_none(session, preceding_scene)
         if recent_prose is not None:
-            user_sections.append(f"OPTIONAL RECENT PROSE\n\n{recent_prose}")
+            user_sections.append(_headed("Optional Recent Prose", recent_prose))
 
-    user_sections.append(_scene_brief_text(session, target))
+    scene_brief_body = f"{prompts.rendering_scene_brief_caption}\n\n{_scene_brief_fields_text(session, target)}"
+    user_sections.append(_headed("Scene Brief", scene_brief_body))
+    user_sections.append(_headed("Final Instructions", prompts.rendering_closing_instructions))
     messages.append({"role": "user", "content": "\n\n".join(user_sections)})
     return messages
 

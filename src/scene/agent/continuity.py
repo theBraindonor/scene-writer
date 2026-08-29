@@ -4,6 +4,7 @@ from sqlalchemy.orm import Session
 
 from scene.agent.config import LLMConfig
 from scene.agent.llm import complete
+from scene.agent.prompts import load_prompts
 from scene.core.continuity_snapshot import (
     create_snapshot,
     delete_snapshot,
@@ -16,19 +17,7 @@ from scene.data.continuity_snapshot import ContinuitySnapshot
 
 NO_PRIOR_NARRATIVE_STATE = "(No prior narrative state; this is the first scene.)"
 
-CONTINUITY_EDITOR_SYSTEM_PROMPT = (
-    "You are the continuity editor for a serialized novel.\n\n"
-    "Given the current canonical narrative state and one newly accepted scene, write the "
-    "updated canonical narrative state.\n\n"
-    "Rules:\n"
-    "- Preserve all prior facts unless the new scene explicitly changes them.\n"
-    "- Add only facts directly stated or unambiguously shown in the scene.\n"
-    "- Do not infer unstated motives, identities, timelines, or future events.\n"
-    "- Do not resolve an open thread unless the scene explicitly resolves it.\n"
-    "- Keep the result concise and factual, using the supplied snapshot format.\n"
-    "- Return the updated narrative state only. Do not include analysis, explanations, or "
-    "the scene prose."
-)
+CONTINUITY_EDITOR_SYSTEM_PROMPT = load_prompts().continuity_editor_system_prompt
 
 
 def _active_rendering_body(session: Session, scene_id: int) -> str:

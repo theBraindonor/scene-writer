@@ -5,18 +5,9 @@ from typing import Any
 
 from scene.agent.config import LLMConfig
 from scene.agent.llm import stream_complete
+from scene.agent.prompts import load_prompts
 
-DEFAULT_SYSTEM_PROMPT = (
-    "You are the Scene Writer coordinating agent. You help a writer develop a story by "
-    "chatting with them and using the tools available to you to view and edit its data. "
-    "You can view and edit the story's title, story brief, style guidance, and generation "
-    "guidance; its scenes' heading, brief, required actions, POV character, desired "
-    "outcome, target length, and position; its cast of characters (name, description, "
-    "motive); and its locations (name, description) — including which characters and "
-    "which locations are assigned to each scene. Chat naturally, ask clarifying questions, "
-    "and use your tools to make the changes the writer asks for rather than just "
-    "describing what they should do."
-)
+DEFAULT_SYSTEM_PROMPT = load_prompts().coordinator_system_prompt
 
 
 @dataclass(frozen=True)

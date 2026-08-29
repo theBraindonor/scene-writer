@@ -79,6 +79,44 @@ def test_build_render_messages_system_message_has_story_brief_and_style_guidance
     assert "Terse, present tense" in messages[0]["content"]
 
 
+def test_build_render_messages_system_message_has_requirements_before_story_brief(session, story_id):
+    scene = create_scene(session, story_id=story_id, position=0, brief="First")
+
+    messages = build_render_messages(session, story_id, scene.id)
+
+    system_content = messages[0]["content"]
+    assert "## Requirements" in system_content
+    assert "## Story Brief" in system_content
+    assert system_content.index("## Requirements") < system_content.index("## Story Brief")
+    assert "- Use the requested point of view and tense." in system_content
+
+
+def test_build_render_messages_scene_brief_has_caption_and_final_instructions(session, story_id):
+    scene = create_scene(session, story_id=story_id, position=0, brief="First")
+
+    messages = build_render_messages(session, story_id, scene.id)
+
+    user_content = messages[1]["content"]
+    assert "complementary" in user_content
+    assert "## Final Instructions" in user_content
+    assert "Above all else, satisfy this Scene Brief" in user_content
+    assert "do not add a tidy conclusion" in user_content
+    scene_brief_index = user_content.index("## Scene Brief")
+    final_instructions_index = user_content.index("## Final Instructions")
+    assert scene_brief_index < final_instructions_index
+
+
+def test_build_render_messages_system_message_has_scene_generation_instructions_last(session, story_id):
+    scene = create_scene(session, story_id=story_id, position=0, brief="First")
+
+    messages = build_render_messages(session, story_id, scene.id)
+
+    system_content = messages[0]["content"]
+    assert "## Scene Generation Instructions" in system_content
+    assert "The next message contains this scene's brief" in system_content
+    assert system_content.index("## Story Brief") < system_content.index("## Scene Generation Instructions")
+
+
 def test_build_render_messages_no_prior_scenes_has_single_user_message(session, story_id):
     scene = create_scene(session, story_id=story_id, position=0, brief="First", heading="Arrival")
 
@@ -87,8 +125,8 @@ def test_build_render_messages_no_prior_scenes_has_single_user_message(session, 
     assert len(messages) == 2
     assert messages[1]["role"] == "user"
     assert "Heading: Arrival" in messages[1]["content"]
-    assert "CURRENT CANON" not in messages[1]["content"]
-    assert "OPTIONAL RECENT PROSE" not in messages[1]["content"]
+    assert "## Current Canon" not in messages[1]["content"]
+    assert "## Optional Recent Prose" not in messages[1]["content"]
 
 
 def test_build_render_messages_includes_current_canon_and_recent_prose(session, story_id):
@@ -101,8 +139,8 @@ def test_build_render_messages_includes_current_canon_and_recent_prose(session, 
 
     assert len(messages) == 2
     user_content = messages[1]["content"]
-    assert "CURRENT CANON\n\nMara is at the station." in user_content
-    assert "OPTIONAL RECENT PROSE\n\nThe prose of the first scene." in user_content
+    assert "## Current Canon\n\nMara is at the station." in user_content
+    assert "## Optional Recent Prose\n\nThe prose of the first scene." in user_content
     assert "Heading: Departure" in user_content
 
 
@@ -113,8 +151,8 @@ def test_build_render_messages_omits_current_canon_and_recent_prose_when_absent(
     messages = build_render_messages(session, story_id, second.id)
 
     user_content = messages[1]["content"]
-    assert "CURRENT CANON" not in user_content
-    assert "OPTIONAL RECENT PROSE" not in user_content
+    assert "## Current Canon" not in user_content
+    assert "## Optional Recent Prose" not in user_content
 
 
 def test_build_render_messages_scene_brief_sections_appear_in_requested_order(session, story_id):
@@ -134,7 +172,7 @@ def test_build_render_messages_scene_brief_sections_appear_in_requested_order(se
     messages = build_render_messages(session, story_id, scene.id)
     scene_content = messages[-1]["content"]
 
-    assert scene_content.startswith("SCENE BRIEF")
+    assert scene_content.startswith("## Scene Brief")
     heading_index = scene_content.index("Heading: Arrival")
     pov_index = scene_content.index("Point of view: Mara")
     brief_index = scene_content.index("Brief: First")
@@ -174,13 +212,27 @@ def test_build_render_messages_system_message_includes_only_assigned_reference_c
     messages = build_render_messages(session, story_id, scene.id)
 
     system_content = messages[0]["content"]
+    assert "## Cast of Characters" in system_content
     assert "CHARACTER: Alex" in system_content
     assert "Enduring details: A wanderer" in system_content
     assert "Core motive: Find home" in system_content
+    assert "## Locations" in system_content
     assert "LOCATION: The Tavern" in system_content
     assert "A cozy inn" in system_content
     assert "Unassigned Character" not in system_content
     assert "Unassigned Location" not in system_content
+    assert system_content.index("## Cast of Characters") < system_content.index("CHARACTER: Alex")
+    assert system_content.index("## Locations") < system_content.index("LOCATION: The Tavern")
+
+
+def test_build_render_messages_system_message_omits_reference_headings_when_none_assigned(session, story_id):
+    scene = create_scene(session, story_id=story_id, position=0, brief="First")
+
+    messages = build_render_messages(session, story_id, scene.id)
+
+    system_content = messages[0]["content"]
+    assert "## Cast of Characters" not in system_content
+    assert "## Locations" not in system_content
 
 
 def test_build_render_messages_does_not_raise_when_prior_scene_has_no_active_rendering(session, story_id):
@@ -189,7 +241,7 @@ def test_build_render_messages_does_not_raise_when_prior_scene_has_no_active_ren
 
     messages = build_render_messages(session, story_id, second.id)
 
-    assert "OPTIONAL RECENT PROSE" not in messages[1]["content"]
+    assert "## Optional Recent Prose" not in messages[1]["content"]
 
 
 def test_build_render_messages_raises_for_missing_story(session):

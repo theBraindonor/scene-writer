@@ -3,9 +3,9 @@ archived: false
 created_by: John Hoff
 created_on: '2026-08-24T14:14:32Z'
 name: c008-story-data-model-v2
-status: open
+status: completed
 updated_by: John Hoff
-updated_on: '2026-08-24T14:19:33Z'
+updated_on: '2026-08-28T21:00:35Z'
 ---
 
 # Story data model v2 refactor
@@ -84,3 +84,9 @@ expected to span all five.
   then CLI, then GUI) so each encounter has a coherent, independently
   verifiable unit of change. Later encounters may depend on earlier ones
   via `encounter_assign_dependency`.
+
+## Log
+
+### Completed - 2026-08-28T21:00:35Z - John Hoff
+
+All 11 planned encounters landed: the story/scene field renames (scenario→story_brief, description→brief, length→target_length) plus the new generation_guideance and pov_character_id/desired_outcome fields were propagated through data, core, agent, cli, and gui; the continuity_snapshot entity and its generation/invalidation flow were added end-to-end; and a rendering-agent token-budget bug found along the way was fixed. Prompt construction now follows the shape described in docs/prompt-guidance.md (stable story reference + continuity snapshot + scene-specific request). Data model v2 is complete and in use.
