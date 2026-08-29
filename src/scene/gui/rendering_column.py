@@ -1,4 +1,4 @@
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 
 from PySide6.QtCore import QObject, Qt, QThread, QTimer, Signal
 from PySide6.QtWidgets import (
@@ -18,7 +18,14 @@ from PySide6.QtWidgets import (
 )
 
 from scene.agent.config import LLMConfig
-from scene.agent.continuity import accept_scene, regenerate_snapshots_from
+from scene.agent.continuity import (
+    ContinuityContentDelta,
+    ContinuityEvent,
+    ContinuityReasoningDelta,
+    ContinuitySceneStarted,
+    stream_accept_scene,
+    stream_regenerate_snapshots_from,
+)
 from scene.agent.rendering import (
     RenderComplete,
     RenderContentDelta,
@@ -114,21 +121,24 @@ class _RenderWorker(QObject):
 
 
 class _ContinuityWorker(QObject):
-    """Runs one continuity-editor call (`accept_scene` or `regenerate_snapshots_from`) on a
-    background thread, mirroring `_RenderWorker`'s thread/signal pattern for the main render
-    stream so a continuity-editor call (potentially several LLM round trips for a
-    `regenerate_snapshots_from` chain) never blocks the GUI thread."""
+    """Streams one continuity-editor call (`stream_accept_scene` or
+    `stream_regenerate_snapshots_from`) to completion on a background thread, mirroring
+    `_RenderWorker`'s thread/signal pattern for the main render stream so a continuity-editor
+    call (potentially several LLM round trips for a `stream_regenerate_snapshots_from` chain)
+    never blocks the GUI thread."""
 
+    event_received = Signal(object)  # ContinuityEvent
     error_occurred = Signal(str)
     finished = Signal()
 
-    def __init__(self, target: Callable[[], None], parent: QObject | None = None) -> None:
+    def __init__(self, events_factory: Callable[[], Iterator[ContinuityEvent]], parent: QObject | None = None) -> None:
         super().__init__(parent)
-        self._target = target
+        self._events_factory = events_factory
 
     def run(self) -> None:
         try:
-            self._target()
+            for event in self._events_factory():
+                self.event_received.emit(event)
         except Exception as error:  # noqa: BLE001 - surfaced to the UI, never swallowed
             self.error_occurred.emit(str(error))
         self.finished.emit()
@@ -211,6 +221,8 @@ class RenderingColumn(QWidget):
         self._display_text = ""
         self._cancel_requested = False
         self._error_message: str | None = None
+        self._continuity_display_text = ""
+        self._continuity_display_scene_id: int | None = None
 
         self.no_selection_label = QLabel(NO_SCENE_SELECTED_TEXT)
         self.no_selection_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -227,12 +239,15 @@ class RenderingColumn(QWidget):
 
         self.body_reasoning_view = QPlainTextEdit()
         self.body_reasoning_view.setReadOnly(True)
+        self.body_reasoning_view.setFont(body_font)
 
         self.continuity_snapshot_view = QPlainTextEdit()
         self.continuity_snapshot_view.setReadOnly(True)
+        self.continuity_snapshot_view.setFont(body_font)
 
         self.continuity_snapshot_reasoning_view = QPlainTextEdit()
         self.continuity_snapshot_reasoning_view.setReadOnly(True)
+        self.continuity_snapshot_reasoning_view.setFont(body_font)
 
         self.tabs = QTabWidget()
         self.tabs.addTab(self.body_view, PROSE_TAB_LABEL)
@@ -438,7 +453,7 @@ class RenderingColumn(QWidget):
             from_position = self.current_scene_position
             self._continuity_busy = True
             self._start_continuity_task(
-                lambda: self._regenerate_snapshots_task(story_id, from_position),
+                lambda: self._regenerate_snapshots_events(story_id, from_position),
                 CONTINUITY_REGENERATE_FAILED_TEXT,
             )
             self._refresh(select_rendering_id=self.selected_rendering_id)
@@ -594,7 +609,7 @@ class RenderingColumn(QWidget):
                 story_id = generated_scene.story_id
                 self._continuity_busy = True
                 self._start_continuity_task(
-                    lambda: self._accept_scene_task(story_id, scene_id),
+                    lambda: self._accept_scene_events(story_id, scene_id),
                     CONTINUITY_UPDATE_FAILED_TEXT,
                 )
 
@@ -611,27 +626,53 @@ class RenderingColumn(QWidget):
 
     # -- continuity editor ---------------------------------------------------
 
-    def _accept_scene_task(self, story_id: int, scene_id: int) -> None:
+    def _accept_scene_events(self, story_id: int, scene_id: int) -> Iterator[ContinuityEvent]:
         with session_scope() as session:
-            accept_scene(self._continuity_config, session, story_id, scene_id)
+            yield from stream_accept_scene(self._continuity_config, session, story_id, scene_id)
 
-    def _regenerate_snapshots_task(self, story_id: int, from_position: int) -> None:
+    def _regenerate_snapshots_events(self, story_id: int, from_position: int) -> Iterator[ContinuityEvent]:
         with session_scope() as session:
-            regenerate_snapshots_from(self._continuity_config, session, story_id, from_position)
+            yield from stream_regenerate_snapshots_from(self._continuity_config, session, story_id, from_position)
 
-    def _start_continuity_task(self, target: Callable[[], None], error_template: str) -> None:
+    def _start_continuity_task(
+        self, events_factory: Callable[[], Iterator[ContinuityEvent]], error_template: str
+    ) -> None:
         self._hide_continuity_notice()
         self.progress_label.setText("Creating continuity snapshot...")
         self.progress_label.show()
         thread = QThread()
-        worker = _ContinuityWorker(target)
+        worker = _ContinuityWorker(events_factory)
         worker.moveToThread(thread)
         thread.started.connect(worker.run)
+        worker.event_received.connect(self._on_continuity_event)
         worker.error_occurred.connect(lambda message: self._show_continuity_notice(error_template.format(error=message)))
         worker.finished.connect(self._on_continuity_task_finished)
         self._continuity_thread = thread
         self._continuity_worker = worker
         thread.start()
+
+    def _on_continuity_event(self, event: ContinuityEvent) -> None:
+        # Mirrors `_on_render_event`: content and reasoning deltas are both appended into one
+        # combined, live-visible stream in the Continuity Snapshot tab (not split into their
+        # separate destination tabs until `_refresh()` re-reads the persisted snapshot below),
+        # exactly like the Prose tab does today for rendering.
+        if isinstance(event, ContinuitySceneStarted):
+            self._continuity_display_text = ""
+            self._continuity_display_scene_id = event.scene_id
+            if event.scene_id == self.current_scene_id:
+                self.continuity_snapshot_view.clear()
+        elif isinstance(event, ContinuityContentDelta | ContinuityReasoningDelta):
+            self._continuity_display_text += event.text
+            if self._continuity_display_scene_id == self.current_scene_id:
+                self.continuity_snapshot_view.setPlainText(self._continuity_display_text)
+                self._schedule_scroll_continuity_to_end()
+
+    def _schedule_scroll_continuity_to_end(self) -> None:
+        QTimer.singleShot(0, self._scroll_continuity_to_end)
+
+    def _scroll_continuity_to_end(self) -> None:
+        scrollbar = self.continuity_snapshot_view.verticalScrollBar()
+        scrollbar.setValue(scrollbar.maximum())
 
     def _on_continuity_task_finished(self) -> None:
         # `worker.run()` has already returned by the time `finished` reaches this handler, so
@@ -645,8 +686,17 @@ class RenderingColumn(QWidget):
         self._continuity_thread.quit()
         self._continuity_thread.wait()
         self._continuity_busy = False
+        self._continuity_display_text = ""
+        self._continuity_display_scene_id = None
         self.progress_label.setText("Creating continuity snapshot... Done.")
         self._refresh()
+        # `_refresh()` just re-set the continuity views' text from the DB (`setPlainText` resets
+        # scroll position to the top), which can otherwise race ahead of a scroll-to-end deferred
+        # by the last streamed delta -- persisting a snapshot mid-stream (unlike rendering, which
+        # persists only after all streaming ends) leaves a real gap where that delta's timer can
+        # fire before this handler even runs. Scheduling a fresh scroll here makes the final
+        # scrolled-to-end state deterministic regardless of that race.
+        self._schedule_scroll_continuity_to_end()
 
     # -- notices ---------------------------------------------------------------
 

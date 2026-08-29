@@ -1,10 +1,11 @@
+from collections.abc import Iterator
 from dataclasses import dataclass
 from typing import Any
 
 from sqlalchemy.orm import Session
 
 from scene.agent.config import LLMConfig
-from scene.agent.llm import complete
+from scene.agent.llm import complete, stream_complete
 from scene.agent.prompts import load_prompts
 from scene.core.continuity_snapshot import (
     create_snapshot,
@@ -79,3 +80,86 @@ def regenerate_snapshots_from(config: LLMConfig, session: Session, story_id: int
         if not any(rendering.is_active for rendering in renderings):
             break
         accept_scene(config, session, story_id, scene.id)
+
+
+@dataclass(frozen=True)
+class ContinuityReasoningDelta:
+    text: str
+
+
+@dataclass(frozen=True)
+class ContinuityContentDelta:
+    text: str
+
+
+@dataclass(frozen=True)
+class ContinuityComplete:
+    text: str
+    reasoning: str = ""
+
+
+@dataclass(frozen=True)
+class ContinuitySceneStarted:
+    scene_id: int
+
+
+@dataclass(frozen=True)
+class ContinuitySceneComplete:
+    scene_id: int
+    snapshot: ContinuitySnapshot
+
+
+ContinuityEvent = (
+    ContinuityReasoningDelta
+    | ContinuityContentDelta
+    | ContinuityComplete
+    | ContinuitySceneStarted
+    | ContinuitySceneComplete
+)
+
+
+def stream_continuity_edit(config: LLMConfig, messages: list[dict[str, Any]]) -> Iterator[ContinuityEvent]:
+    content_parts: list[str] = []
+    reasoning_parts: list[str] = []
+
+    for chunk in stream_complete(config, messages):
+        delta = chunk.choices[0].delta
+
+        reasoning_piece = getattr(delta, "reasoning_content", None)
+        if reasoning_piece:
+            reasoning_parts.append(reasoning_piece)
+            yield ContinuityReasoningDelta(reasoning_piece)
+
+        content_piece = getattr(delta, "content", None)
+        if content_piece:
+            content_parts.append(content_piece)
+            yield ContinuityContentDelta(content_piece)
+
+    yield ContinuityComplete(text="".join(content_parts), reasoning="".join(reasoning_parts))
+
+
+def stream_accept_scene(config: LLMConfig, session: Session, story_id: int, scene_id: int) -> Iterator[ContinuityEvent]:
+    messages = build_continuity_messages(session, story_id, scene_id)
+    yield ContinuitySceneStarted(scene_id)
+    for event in stream_continuity_edit(config, messages):
+        if isinstance(event, ContinuityComplete):
+            delete_snapshot(session, story_id, scene_id)
+            snapshot = create_snapshot(
+                session, story_id, scene_id, event.text, narrative_state_reasoning=event.reasoning or None
+            )
+            yield ContinuitySceneComplete(scene_id, snapshot)
+        else:
+            yield event
+
+
+def stream_regenerate_snapshots_from(
+    config: LLMConfig, session: Session, story_id: int, from_position: int
+) -> Iterator[ContinuityEvent]:
+    invalidate_snapshots_from(session, story_id, from_position)
+    for scene in list_scenes(session, story_id):
+        if scene.position < from_position:
+            continue
+        renderings = list_renderings(session, scene.id)
+        if not any(rendering.is_active for rendering in renderings):
+            break
+        yield from stream_accept_scene(config, session, story_id, scene.id)

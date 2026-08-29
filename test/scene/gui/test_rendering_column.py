@@ -7,6 +7,13 @@ from PySide6.QtWidgets import QDialog, QMessageBox, QPlainTextEdit
 import scene.data.database as database_module
 import scene.gui.rendering_column as rendering_column_module
 from scene.agent.config import LLMConfig
+from scene.agent.continuity import (
+    ContinuityContentDelta,
+    ContinuityEvent,
+    ContinuityReasoningDelta,
+    ContinuitySceneComplete,
+    ContinuitySceneStarted,
+)
 from scene.agent.rendering import RenderComplete, RenderContentDelta, RenderEvent, RenderReasoningDelta
 from scene.core.continuity_snapshot import create_snapshot
 from scene.core.rendering import create_rendering, list_renderings, set_active_rendering
@@ -81,7 +88,11 @@ def test_body_view_font_is_scaled_up_from_the_default(qtbot):
     widget = RenderingColumn(FAKE_CONFIG)
     qtbot.addWidget(widget)
 
-    assert widget.body_view.font().pointSize() == round(default_point_size * BODY_FONT_SCALE)
+    scaled_point_size = round(default_point_size * BODY_FONT_SCALE)
+    assert widget.body_view.font().pointSize() == scaled_point_size
+    assert widget.body_reasoning_view.font().pointSize() == scaled_point_size
+    assert widget.continuity_snapshot_view.font().pointSize() == scaled_point_size
+    assert widget.continuity_snapshot_reasoning_view.font().pointSize() == scaled_point_size
 
 
 def test_body_view_and_continuity_snapshot_view_are_separate_tabs(qtbot):
@@ -347,6 +358,33 @@ def _fake_stream(events: list[RenderEvent]):
     return _stream
 
 
+def _fake_accept_scene(events: list[ContinuityEvent], narrative_state: str = "Fresh state."):
+    """Fakes `stream_accept_scene`: yields the given deltas, then persists and yields
+    `ContinuitySceneComplete`, mirroring what the real generator does on completion."""
+
+    def _stream(config, session, story_id, scene_id) -> Iterator[ContinuityEvent]:
+        yield ContinuitySceneStarted(scene_id)
+        yield from events
+        snapshot = create_snapshot(session, story_id, scene_id, narrative_state)
+        yield ContinuitySceneComplete(scene_id, snapshot)
+
+    return _stream
+
+
+def _fake_regenerate_snapshots(events: list[ContinuityEvent], scene_ids: list[int], narrative_state: str = "Fresh state."):
+    """Fakes `stream_regenerate_snapshots_from`: yields a started/deltas/complete sequence for
+    each scene id in order, mirroring the real generator's per-scene chaining."""
+
+    def _stream(config, session, story_id, from_position) -> Iterator[ContinuityEvent]:
+        for scene_id in scene_ids:
+            yield ContinuitySceneStarted(scene_id)
+            yield from events
+            snapshot = create_snapshot(session, story_id, scene_id, narrative_state)
+            yield ContinuitySceneComplete(scene_id, snapshot)
+
+    return _stream
+
+
 def test_generate_streams_and_creates_active_rendering(qtbot, monkeypatch):
     scene_id = seed_scene()
     events: list[RenderEvent] = [
@@ -604,9 +642,11 @@ def test_generate_accepts_scene_and_updates_continuity_tab(qtbot, monkeypatch):
     def fake_accept_scene(config, session, story_id, accepted_scene_id):
         assert config is FAKE_CONTINUITY_CONFIG
         assert accepted_scene_id == scene_id
-        create_snapshot(session, story_id, accepted_scene_id, "Fresh state.")
+        yield ContinuitySceneStarted(accepted_scene_id)
+        snapshot = create_snapshot(session, story_id, accepted_scene_id, "Fresh state.")
+        yield ContinuitySceneComplete(accepted_scene_id, snapshot)
 
-    monkeypatch.setattr(rendering_column_module, "accept_scene", fake_accept_scene)
+    monkeypatch.setattr(rendering_column_module, "stream_accept_scene", fake_accept_scene)
 
     widget = RenderingColumn(FAKE_CONFIG, FAKE_CONTINUITY_CONFIG)
     qtbot.addWidget(widget)
@@ -624,9 +664,9 @@ def test_generate_skips_accept_scene_without_continuity_config(qtbot, monkeypatc
     monkeypatch.setattr(rendering_column_module, "stream_render", _fake_stream(events))
 
     def unexpected_accept_scene(config, session, story_id, accepted_scene_id):
-        raise AssertionError("accept_scene() should not be called without a continuity_config")
+        raise AssertionError("stream_accept_scene() should not be called without a continuity_config")
 
-    monkeypatch.setattr(rendering_column_module, "accept_scene", unexpected_accept_scene)
+    monkeypatch.setattr(rendering_column_module, "stream_accept_scene", unexpected_accept_scene)
 
     widget = RenderingColumn(FAKE_CONFIG)
     qtbot.addWidget(widget)
@@ -645,8 +685,9 @@ def test_generate_shows_continuity_notice_when_accept_scene_fails(qtbot, monkeyp
 
     def failing_accept_scene(config, session, story_id, accepted_scene_id):
         raise RuntimeError("boom")
+        yield  # pragma: no cover - never reached; makes this a generator function
 
-    monkeypatch.setattr(rendering_column_module, "accept_scene", failing_accept_scene)
+    monkeypatch.setattr(rendering_column_module, "stream_accept_scene", failing_accept_scene)
 
     widget = RenderingColumn(FAKE_CONFIG, FAKE_CONTINUITY_CONFIG)
     qtbot.addWidget(widget)
@@ -669,9 +710,11 @@ def test_activate_version_calls_regenerate_snapshots_and_updates_tab(qtbot, monk
         assert config is FAKE_CONTINUITY_CONFIG
         assert regenerate_story_id == story_id
         assert from_position == 0
-        create_snapshot(session, regenerate_story_id, scene_id, "Fresh state.")
+        yield ContinuitySceneStarted(scene_id)
+        snapshot = create_snapshot(session, regenerate_story_id, scene_id, "Fresh state.")
+        yield ContinuitySceneComplete(scene_id, snapshot)
 
-    monkeypatch.setattr(rendering_column_module, "regenerate_snapshots_from", fake_regenerate)
+    monkeypatch.setattr(rendering_column_module, "stream_regenerate_snapshots_from", fake_regenerate)
 
     widget = RenderingColumn(FAKE_CONFIG, FAKE_CONTINUITY_CONFIG)
     qtbot.addWidget(widget)
@@ -692,8 +735,9 @@ def test_activate_version_shows_continuity_notice_when_regenerate_fails(qtbot, m
 
     def failing_regenerate(config, session, story_id, from_position):
         raise RuntimeError("boom")
+        yield  # pragma: no cover - never reached; makes this a generator function
 
-    monkeypatch.setattr(rendering_column_module, "regenerate_snapshots_from", failing_regenerate)
+    monkeypatch.setattr(rendering_column_module, "stream_regenerate_snapshots_from", failing_regenerate)
 
     widget = RenderingColumn(FAKE_CONFIG, FAKE_CONTINUITY_CONFIG)
     qtbot.addWidget(widget)
@@ -734,10 +778,12 @@ def test_buttons_stay_blocked_while_continuity_task_runs_after_generation(qtbot,
 
     def slow_accept_scene(config, session, story_id, accepted_scene_id):
         accept_calls.append(accepted_scene_id)
+        yield ContinuitySceneStarted(accepted_scene_id)
         gate.wait(timeout=2)
-        create_snapshot(session, story_id, accepted_scene_id, "Fresh state.")
+        snapshot = create_snapshot(session, story_id, accepted_scene_id, "Fresh state.")
+        yield ContinuitySceneComplete(accepted_scene_id, snapshot)
 
-    monkeypatch.setattr(rendering_column_module, "accept_scene", slow_accept_scene)
+    monkeypatch.setattr(rendering_column_module, "stream_accept_scene", slow_accept_scene)
 
     widget = RenderingColumn(FAKE_CONFIG, FAKE_CONTINUITY_CONFIG)
     qtbot.addWidget(widget)
@@ -788,8 +834,9 @@ def test_cancel_prevents_continuity_task_from_starting(qtbot, monkeypatch):
 
     def tracking_accept_scene(config, session, story_id, accepted_scene_id):
         accept_calls.append(accepted_scene_id)
+        yield  # pragma: no cover - never reached; this fake is only called if the guard fails
 
-    monkeypatch.setattr(rendering_column_module, "accept_scene", tracking_accept_scene)
+    monkeypatch.setattr(rendering_column_module, "stream_accept_scene", tracking_accept_scene)
 
     widget = RenderingColumn(FAKE_CONFIG, FAKE_CONTINUITY_CONFIG)
     qtbot.addWidget(widget)
@@ -810,3 +857,121 @@ def test_cancel_prevents_continuity_task_from_starting(qtbot, monkeypatch):
         renderings = list_renderings(session, scene_id)
     assert len(renderings) == 1
     assert renderings[0].body == "Hello "
+
+
+def test_continuity_snapshot_tab_streams_content_and_reasoning_deltas(qtbot, monkeypatch):
+    scene_id = seed_scene()
+    render_events: list[RenderEvent] = [RenderContentDelta("Once upon a time."), RenderComplete("Once upon a time.")]
+    monkeypatch.setattr(rendering_column_module, "stream_render", _fake_stream(render_events))
+
+    gate = threading.Event()
+
+    def gated_accept_scene(config, session, story_id, accepted_scene_id):
+        yield ContinuitySceneStarted(accepted_scene_id)
+        yield ContinuityReasoningDelta("Weighing ")
+        yield ContinuityContentDelta("Mara is ")
+        gate.wait(timeout=2)
+        yield ContinuityReasoningDelta("prior events.")
+        yield ContinuityContentDelta("at the station.")
+        snapshot = create_snapshot(
+            session,
+            story_id,
+            accepted_scene_id,
+            "Mara is at the station.",
+            narrative_state_reasoning="Weighing prior events.",
+        )
+        yield ContinuitySceneComplete(accepted_scene_id, snapshot)
+
+    monkeypatch.setattr(rendering_column_module, "stream_accept_scene", gated_accept_scene)
+
+    widget = RenderingColumn(FAKE_CONFIG, FAKE_CONTINUITY_CONFIG)
+    qtbot.addWidget(widget)
+    widget.set_scene(scene_id)
+
+    with qtbot.waitSignal(widget.generation_finished, timeout=2000):
+        widget.generate_button.click()
+
+    # Content and reasoning deltas both stream into the single Continuity Snapshot tab, in
+    # arrival order -- mirroring how the Prose tab shows rendering's unsplit live stream --
+    # and are only separated into their respective tabs once `_refresh()` re-reads the
+    # persisted snapshot after the task finishes.
+    qtbot.waitUntil(lambda: widget.continuity_snapshot_view.toPlainText() == "Weighing Mara is ", timeout=2000)
+    assert widget.continuity_snapshot_reasoning_view.toPlainText() == NO_CONTINUITY_SNAPSHOT_TEXT
+
+    gate.set()
+    qtbot.waitUntil(lambda: not widget._continuity_busy, timeout=2000)
+
+    assert widget.continuity_snapshot_view.toPlainText() == "Mara is at the station."
+    assert widget.continuity_snapshot_reasoning_view.toPlainText() == "Weighing prior events."
+
+
+def test_continuity_snapshot_tab_scrolls_to_end_as_it_streams(qtbot, monkeypatch):
+    scene_id = seed_scene()
+    render_events: list[RenderEvent] = [RenderContentDelta("Once upon a time."), RenderComplete("Once upon a time.")]
+    monkeypatch.setattr(rendering_column_module, "stream_render", _fake_stream(render_events))
+
+    long_text = "Line.\n" * 200
+
+    def long_accept_scene(config, session, story_id, accepted_scene_id):
+        yield ContinuitySceneStarted(accepted_scene_id)
+        yield ContinuityContentDelta(long_text)
+        snapshot = create_snapshot(session, story_id, accepted_scene_id, long_text)
+        yield ContinuitySceneComplete(accepted_scene_id, snapshot)
+
+    monkeypatch.setattr(rendering_column_module, "stream_accept_scene", long_accept_scene)
+
+    widget = RenderingColumn(FAKE_CONFIG, FAKE_CONTINUITY_CONFIG)
+    qtbot.addWidget(widget)
+    widget.resize(300, 100)
+    widget.show()
+    widget.set_scene(scene_id)
+    # The scrollbar's range is only kept current for whatever tab is actually visible/laid
+    # out, so switch to the Continuity Snapshot tab before streaming starts.
+    widget.tabs.setCurrentWidget(widget.continuity_snapshot_view)
+
+    with qtbot.waitSignal(widget.generation_finished, timeout=2000):
+        widget.generate_button.click()
+    qtbot.waitUntil(lambda: not widget._continuity_busy, timeout=2000)
+    # `_schedule_scroll_continuity_to_end` defers the actual scroll via `QTimer.singleShot(0, ...)`
+    # so the scrollbar's range has settled after layout; pump the event loop briefly so that
+    # deferred callback runs before asserting on the scroll position.
+    qtbot.wait(10)
+
+    scrollbar = widget.continuity_snapshot_view.verticalScrollBar()
+    assert scrollbar.value() == scrollbar.maximum()
+
+
+def test_regenerate_chain_does_not_stream_other_scenes_into_visible_tab(qtbot, monkeypatch):
+    story_id, first_id = seed_scene_with_story()
+    with session_scope() as session:
+        first_rendering = create_rendering(session, scene_id=first_id, body="First version.")
+        set_active_rendering(session, first_rendering.id)
+        second = create_scene(session, story_id=story_id, position=1, brief="Second")
+        second_id = second.id
+        second_rendering = create_rendering(session, scene_id=second_id, body="Second version.")
+        set_active_rendering(session, second_rendering.id)
+        create_rendering(session, scene_id=second_id, body="Second version, take two.")
+
+    def regenerate_two_scenes(config, session, regenerate_story_id, from_position):
+        yield ContinuitySceneStarted(first_id)
+        yield ContinuityContentDelta("Unrelated text for the first scene.")
+        first_snapshot = create_snapshot(session, regenerate_story_id, first_id, "First state.")
+        yield ContinuitySceneComplete(first_id, first_snapshot)
+
+        yield ContinuitySceneStarted(second_id)
+        yield ContinuityContentDelta("Fresh state for the second scene.")
+        second_snapshot = create_snapshot(session, regenerate_story_id, second_id, "Second state.")
+        yield ContinuitySceneComplete(second_id, second_snapshot)
+
+    monkeypatch.setattr(rendering_column_module, "stream_regenerate_snapshots_from", regenerate_two_scenes)
+
+    widget = RenderingColumn(FAKE_CONFIG, FAKE_CONTINUITY_CONFIG)
+    qtbot.addWidget(widget)
+    # Select the second scene so the chain's first-scene deltas (`first_id`) must not appear here.
+    widget.set_scene(second_id)
+
+    widget.version_list.setCurrentRow(1)
+    widget.activate_button.click()
+
+    qtbot.waitUntil(lambda: widget.continuity_snapshot_view.toPlainText() == "Second state.", timeout=2000)
+    assert "Unrelated text for the first scene." not in widget.continuity_snapshot_view.toPlainText()
