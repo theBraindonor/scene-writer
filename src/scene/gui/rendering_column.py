@@ -204,6 +204,7 @@ class RenderingColumn(QWidget):
         self._continuity_thread: QThread | None = None
         self._continuity_worker: _ContinuityWorker | None = None
         self._generating = False
+        self._continuity_busy = False
         self._generating_scene_id: int | None = None
         self._content_text = ""
         self._reasoning_text = ""
@@ -265,7 +266,11 @@ class RenderingColumn(QWidget):
         self.delete_button = QPushButton("Delete Version")
         self.delete_button.clicked.connect(self._on_delete_clicked)
 
+        self.progress_label = QLabel()
+        self.progress_label.hide()
+
         generate_row = QHBoxLayout()
+        generate_row.addWidget(self.progress_label)
         generate_row.addStretch()
         generate_row.addWidget(self.preview_prompt_checkbox)
         generate_row.addWidget(self.generate_button)
@@ -335,7 +340,7 @@ class RenderingColumn(QWidget):
                     session, self.current_story_id, self.current_scene_position
                 )
 
-        busy = self._generating
+        busy = self._generating or self._continuity_busy
         if busy:
             self.generate_button.hide()
             self.preview_prompt_checkbox.hide()
@@ -431,10 +436,12 @@ class RenderingColumn(QWidget):
         ):
             story_id = self.current_story_id
             from_position = self.current_scene_position
+            self._continuity_busy = True
             self._start_continuity_task(
                 lambda: self._regenerate_snapshots_task(story_id, from_position),
                 CONTINUITY_REGENERATE_FAILED_TEXT,
             )
+            self._refresh(select_rendering_id=self.selected_rendering_id)
 
     def _on_delete_clicked(self) -> None:
         if self.current_scene_id is None or self.selected_rendering_id is None:
@@ -499,6 +506,8 @@ class RenderingColumn(QWidget):
         self.cancel_button.show()
         self.activate_button.setEnabled(False)
         self.delete_button.setEnabled(False)
+        self.progress_label.setText("Rendering scene prose...")
+        self.progress_label.show()
 
         self._thread = QThread()
         self._worker = _RenderWorker(self._llm_config, messages)
@@ -571,13 +580,19 @@ class RenderingColumn(QWidget):
         self._error_message = None
         self.cancel_button.hide()
 
+        if error_message is not None or was_cancelled:
+            self.progress_label.hide()
+        else:
+            self.progress_label.setText("Rendering scene prose... Done.")
+
         if assembled:
             with session_scope() as session:
                 rendering = create_rendering(session, scene_id=scene_id, body=assembled, body_reasoning=body_reasoning)
                 set_active_rendering(session, rendering.id)
                 generated_scene = get_scene(session, scene_id)
-            if self._continuity_config is not None and generated_scene is not None:
+            if self._continuity_config is not None and generated_scene is not None and not was_cancelled:
                 story_id = generated_scene.story_id
+                self._continuity_busy = True
                 self._start_continuity_task(
                     lambda: self._accept_scene_task(story_id, scene_id),
                     CONTINUITY_UPDATE_FAILED_TEXT,
@@ -606,6 +621,8 @@ class RenderingColumn(QWidget):
 
     def _start_continuity_task(self, target: Callable[[], None], error_template: str) -> None:
         self._hide_continuity_notice()
+        self.progress_label.setText("Creating continuity snapshot...")
+        self.progress_label.show()
         thread = QThread()
         worker = _ContinuityWorker(target)
         worker.moveToThread(thread)
@@ -627,7 +644,9 @@ class RenderingColumn(QWidget):
         # Destroyed while thread is still running").
         self._continuity_thread.quit()
         self._continuity_thread.wait()
-        self._refresh_continuity_snapshot()
+        self._continuity_busy = False
+        self.progress_label.setText("Creating continuity snapshot... Done.")
+        self._refresh()
 
     # -- notices ---------------------------------------------------------------
 

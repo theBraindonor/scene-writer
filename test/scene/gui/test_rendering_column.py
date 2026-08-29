@@ -722,3 +722,91 @@ def test_selecting_a_version_does_not_change_continuity_snapshot_tab(qtbot):
     widget.version_list.setCurrentRow(1)
     assert widget.body_view.toPlainText() == "Second version."
     assert widget.continuity_snapshot_view.toPlainText() == "Stable state."
+
+
+def test_buttons_stay_blocked_while_continuity_task_runs_after_generation(qtbot, monkeypatch):
+    scene_id = seed_scene()
+    events: list[RenderEvent] = [RenderContentDelta("Once upon a time."), RenderComplete("Once upon a time.")]
+    monkeypatch.setattr(rendering_column_module, "stream_render", _fake_stream(events))
+
+    gate = threading.Event()
+    accept_calls: list[int] = []
+
+    def slow_accept_scene(config, session, story_id, accepted_scene_id):
+        accept_calls.append(accepted_scene_id)
+        gate.wait(timeout=2)
+        create_snapshot(session, story_id, accepted_scene_id, "Fresh state.")
+
+    monkeypatch.setattr(rendering_column_module, "accept_scene", slow_accept_scene)
+
+    widget = RenderingColumn(FAKE_CONFIG, FAKE_CONTINUITY_CONFIG)
+    qtbot.addWidget(widget)
+    widget.set_scene(scene_id)
+
+    with qtbot.waitSignal(widget.generation_finished, timeout=2000):
+        widget.generate_button.click()
+
+    # The render's own worker/thread has already finished (generation_finished fired), but the
+    # continuity task it kicked off is still blocked on `gate`. Generate, Activate, and Delete
+    # must all stay blocked here -- otherwise a second render or Activate click could start a
+    # second continuity task and clobber the still-running QThread (the crash this guard fixes).
+    assert widget._continuity_busy
+    assert widget.generate_button.isHidden()
+    assert not widget.activate_button.isEnabled()
+    assert not widget.delete_button.isEnabled()
+    assert widget.progress_label.text() == "Creating continuity snapshot..."
+
+    continuity_thread = widget._continuity_thread
+    widget.activate_button.click()  # disabled -- must be a no-op, not a second continuity task
+    assert widget._continuity_thread is continuity_thread
+    assert accept_calls == [scene_id]
+
+    gate.set()
+    qtbot.waitUntil(lambda: not widget._continuity_busy, timeout=2000)
+
+    assert not widget.generate_button.isHidden()
+    assert widget.generate_button.isEnabled()
+    assert widget.activate_button.isEnabled()
+    assert widget.delete_button.isEnabled()
+    assert widget.progress_label.text() == "Creating continuity snapshot... Done."
+
+
+def test_cancel_prevents_continuity_task_from_starting(qtbot, monkeypatch):
+    scene_id = seed_scene()
+    gate = threading.Event()
+
+    def _stream(config, messages) -> Iterator[RenderEvent]:
+        yield RenderContentDelta("Hello ")
+        gate.wait(timeout=2)
+        yield RenderContentDelta("world.")
+        yield RenderComplete("Hello world.")
+
+    monkeypatch.setattr(rendering_column_module, "stream_render", _stream)
+    monkeypatch.setattr(QMessageBox, "question", staticmethod(lambda *args, **kwargs: QMessageBox.StandardButton.Yes))
+
+    accept_calls: list[int] = []
+
+    def tracking_accept_scene(config, session, story_id, accepted_scene_id):
+        accept_calls.append(accepted_scene_id)
+
+    monkeypatch.setattr(rendering_column_module, "accept_scene", tracking_accept_scene)
+
+    widget = RenderingColumn(FAKE_CONFIG, FAKE_CONTINUITY_CONFIG)
+    qtbot.addWidget(widget)
+    widget.set_scene(scene_id)
+
+    widget.generate_button.click()
+
+    qtbot.waitUntil(lambda: widget.body_view.toPlainText() == "Hello ", timeout=2000)
+    with qtbot.waitSignal(widget.generation_finished, timeout=2000):
+        widget.cancel_button.click()
+        gate.set()
+
+    assert accept_calls == []
+    assert not widget._continuity_busy
+    assert widget._continuity_thread is None
+    assert widget.progress_label.isHidden()
+    with session_scope() as session:
+        renderings = list_renderings(session, scene_id)
+    assert len(renderings) == 1
+    assert renderings[0].body == "Hello "
