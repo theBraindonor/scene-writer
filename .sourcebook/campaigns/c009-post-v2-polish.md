@@ -3,9 +3,9 @@ archived: false
 created_by: John Hoff
 created_on: '2026-08-28T21:00:41Z'
 name: c009-post-v2-polish
-status: open
+status: completed
 updated_by: John Hoff
-updated_on: '2026-08-28T21:00:43Z'
+updated_on: '2026-08-30T20:24:07Z'
 ---
 
 # Post-v2 polish
@@ -34,3 +34,9 @@ own `Requirements`/`Rationale`/`Plan`. Expect a mix of regions (`data`,
 - Encounters here are expected to be smaller and more independent than a
   typical feature campaign's — most should have few or no dependencies on
   each other.
+
+## Log
+
+### Completed - 2026-08-30T20:24:07Z - John Hoff
+
+Closed out. All 15 encounters completed: agent-prompts config, rendering-prompt restructuring, GUI menu bar, full-story view/save/render, story export/import, continuity-snapshot streaming and summarization, and several race-condition/QThread-teardown/test fixes. No abandonments. This open-ended polish campaign served its purpose as a home for post-v2 rough-edge work; future polish-sized work should get a fresh campaign.
