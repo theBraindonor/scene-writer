@@ -11,8 +11,9 @@ import scene.gui.main_window as main_window_module
 from scene.agent.config import LLMConfig
 from scene.agent.role import AgentRole
 from scene.core.character import list_characters
+from scene.core.location import create_location, get_location
 from scene.core.rendering import create_rendering, set_active_rendering
-from scene.core.scene import create_scene, list_scenes
+from scene.core.scene import create_scene
 from scene.core.story import create_story, list_stories
 from scene.data.database import session_scope
 from scene.gui.main_window import MainWindow
@@ -287,13 +288,13 @@ def test_switching_story_resets_rendering_column(qtbot):
     assert window.rendering_column.stack.currentWidget() is window.rendering_column.no_selection_label
 
 
-def test_selecting_story_sets_coordinator_state(qtbot):
+def test_selecting_story_sets_application_state(qtbot):
     story_id = seed_story("A Story")
     window = make_window(qtbot)
 
     select_story(window, story_id)
 
-    assert window.coordinator_state.current_story_id == story_id
+    assert window.application_state.current_story_id == story_id
 
 
 def test_chat_creating_story_updates_header_and_entity_column(qtbot, monkeypatch):
@@ -313,45 +314,17 @@ def test_chat_creating_story_updates_header_and_entity_column(qtbot, monkeypatch
 
     send(qtbot, window, "please create a story")
 
-    assert window.current_story_id == window.coordinator_state.current_story_id
+    assert window.current_story_id == window.application_state.current_story_id
     assert window.story_header.story_label.text() == "Agent Story"
     assert window.entity_column.current_story_id == window.current_story_id
-
-
-def test_chat_editing_scene_refreshes_entity_column(qtbot, monkeypatch):
-    story_id = seed_story("A Story")
-    with session_scope() as session:
-        create_scene(session, story_id=story_id, position=0, brief="Original brief")
-
-    window = make_window(qtbot)
-    select_story(window, story_id)
-
-    with session_scope() as session:
-        scene_id = list_scenes(session, story_id)[0].id
-
-    tool_call = FakeToolCallDelta(index=0, id="call_1", function=FakeFunctionDelta(name="update_scene"))
-    args = FakeToolCallDelta(
-        index=0,
-        function=FakeFunctionDelta(arguments=f'{{"scene_id": {scene_id}, "brief": "Updated brief"}}'),
-    )
-    script_stream(
-        monkeypatch,
-        [
-            [make_chunk(tool_calls=[tool_call]), make_chunk(tool_calls=[args])],
-            [make_chunk(content="Updated it!")],
-        ],
-    )
-    send(qtbot, window, "please update the scene's brief")
-
-    with session_scope() as session:
-        assert list_scenes(session, story_id)[0].brief == "Updated brief"
-    assert window.entity_column.scenes.list_widget.count() == 1
+    assert window.entity_column.tabs.currentIndex() == window.entity_column._STORY_TAB_INDEX
 
 
 def test_chat_creating_character_refreshes_entity_column(qtbot, monkeypatch):
     story_id = seed_story("A Story")
     window = make_window(qtbot)
     select_story(window, story_id)
+    window.entity_column.tabs.setCurrentIndex(window.entity_column._LOCATIONS_TAB_INDEX)
 
     tool_call = FakeToolCallDelta(index=0, id="call_1", function=FakeFunctionDelta(name="create_character"))
     args = FakeToolCallDelta(index=0, function=FakeFunctionDelta(arguments='{"name": "Alex"}'))
@@ -366,9 +339,44 @@ def test_chat_creating_character_refreshes_entity_column(qtbot, monkeypatch):
     send(qtbot, window, "please add a character named Alex")
 
     with session_scope() as session:
-        assert len(list_characters(session, story_id)) == 1
+        characters = list_characters(session, story_id)
+        assert len(characters) == 1
+        character_id = characters[0].id
+    assert window.entity_column.tabs.currentIndex() == window.entity_column._CHARACTERS_TAB_INDEX
     assert window.entity_column.characters.list_widget.count() == 1
     assert window.entity_column.characters.list_widget.item(0).text() == "Alex"
+    assert window.entity_column.characters.current_character_id == character_id
+
+
+def test_chat_updating_location_switches_to_locations_tab(qtbot, monkeypatch):
+    story_id = seed_story("A Story")
+    with session_scope() as session:
+        location = create_location(session, story_id=story_id, name="Old Name")
+        location_id = location.id
+
+    window = make_window(qtbot)
+    select_story(window, story_id)
+    window.entity_column.tabs.setCurrentIndex(window.entity_column._STORY_TAB_INDEX)
+
+    tool_call = FakeToolCallDelta(index=0, id="call_1", function=FakeFunctionDelta(name="update_location"))
+    args = FakeToolCallDelta(
+        index=0,
+        function=FakeFunctionDelta(arguments=f'{{"location_id": {location_id}, "name": "New Name"}}'),
+    )
+    script_stream(
+        monkeypatch,
+        [
+            [make_chunk(tool_calls=[tool_call]), make_chunk(tool_calls=[args])],
+            [make_chunk(content="Renamed it!")],
+        ],
+    )
+
+    send(qtbot, window, "please rename the location")
+
+    with session_scope() as session:
+        assert get_location(session, location_id).name == "New Name"
+    assert window.entity_column.tabs.currentIndex() == window.entity_column._LOCATIONS_TAB_INDEX
+    assert window.entity_column.locations.current_location_id == location_id
 
 
 def find_menu(window, title):

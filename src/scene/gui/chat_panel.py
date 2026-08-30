@@ -1,9 +1,9 @@
 from PySide6.QtCore import QObject, QThread, Signal
 from PySide6.QtWidgets import QHBoxLayout, QLabel, QLineEdit, QPushButton, QScrollArea, QVBoxLayout, QWidget
 
+from scene.agent.application.state import ApplicationState
 from scene.agent.config import LLMConfig
 from scene.agent.coordinator.loop import (
-    DEFAULT_SYSTEM_PROMPT,
     ContentDelta,
     ReasoningDelta,
     Tool,
@@ -11,7 +11,6 @@ from scene.agent.coordinator.loop import (
     TurnEvent,
     run_turn,
 )
-from scene.agent.coordinator.state import CoordinatorState
 from scene.gui.section_heading import section_heading
 
 
@@ -48,7 +47,7 @@ class _AgentTurnWidget(QWidget):
         self.answer_label.setWordWrap(True)
 
         layout = QVBoxLayout(self)
-        layout.addWidget(section_heading("Coordinator"))
+        layout.addWidget(section_heading("Assistant"))
         layout.addWidget(self.reasoning_label)
         layout.addWidget(self.tool_calls_label)
         layout.addWidget(self.answer_label)
@@ -82,9 +81,10 @@ class _TurnWorker(QObject):
     def __init__(
         self,
         config: LLMConfig,
-        state: CoordinatorState,
+        state: ApplicationState,
         tools: list[Tool],
         user_message: str,
+        system_prompt: str,
         parent: QObject | None = None,
     ) -> None:
         super().__init__(parent)
@@ -92,6 +92,7 @@ class _TurnWorker(QObject):
         self._state = state
         self._tools = tools
         self._user_message = user_message
+        self._system_prompt = system_prompt
 
     def run(self) -> None:
         for event in run_turn(
@@ -99,17 +100,17 @@ class _TurnWorker(QObject):
             self._state.history,
             self._user_message,
             tools=self._tools,
-            system_prompt=DEFAULT_SYSTEM_PROMPT,
+            system_prompt=self._system_prompt,
         ):
             self.event_received.emit(event)
         self.finished.emit()
 
 
 class ChatPanel(QWidget):
-    """Full-width transcript + input driving the coordinating agent.
+    """Full-width transcript + input driving the application agent.
 
     Emits `turn_completed` after every finished turn — `MainWindow` connects to it to sync the
-    sidebar's story selection with `CoordinatorState.current_story_id` and to refresh the
+    sidebar's story selection with `ApplicationState.current_story_id` and to refresh the
     entity column, since the agent's tools may have changed either.
     """
 
@@ -122,8 +123,9 @@ class ChatPanel(QWidget):
     def __init__(
         self,
         config: LLMConfig | None,
-        state: CoordinatorState,
+        state: ApplicationState,
         tools: list[Tool],
+        system_prompt: str,
         error: str | None = None,
         parent: QWidget | None = None,
     ) -> None:
@@ -131,6 +133,7 @@ class ChatPanel(QWidget):
         self._config = config
         self._state = state
         self._tools = tools
+        self._system_prompt = system_prompt
         self._thread: QThread | None = None
         self._worker: _TurnWorker | None = None
         self._active_turn: _AgentTurnWidget | None = None
@@ -239,7 +242,7 @@ class ChatPanel(QWidget):
 
     def _start_worker(self, user_message: str) -> None:
         self._thread = QThread()
-        self._worker = _TurnWorker(self._config, self._state, self._tools, user_message)
+        self._worker = _TurnWorker(self._config, self._state, self._tools, user_message, self._system_prompt)
         self._worker.moveToThread(self._thread)
         self._thread.started.connect(self._worker.run)
         self._worker.event_received.connect(self._on_turn_event)

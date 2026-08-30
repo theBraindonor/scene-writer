@@ -27,6 +27,8 @@ def test_load_prompts_resolves_all_fields(tmp_path):
         f"""
         coordinator:
           system_prompt: Coordinator prompt.
+        application_agent:
+          system_prompt: Application prompt.
         continuity_editor:
           system_prompt: Continuity prompt.
         {RENDERING_SECTION}
@@ -37,6 +39,7 @@ def test_load_prompts_resolves_all_fields(tmp_path):
 
     assert prompts == PromptSet(
         coordinator_system_prompt="Coordinator prompt.",
+        application_agent_system_prompt="Application prompt.",
         continuity_editor_system_prompt="Continuity prompt.",
         rendering_fiction_prefix="Prefix text.",
         rendering_scene_generation_instructions="Suffix text.",
@@ -64,6 +67,8 @@ def test_load_prompts_missing_section_raises(tmp_path):
         """
         coordinator:
           system_prompt: Coordinator prompt.
+        application_agent:
+          system_prompt: Application prompt.
         continuity_editor:
           system_prompt: Continuity prompt.
         """,
@@ -73,12 +78,30 @@ def test_load_prompts_missing_section_raises(tmp_path):
         load_prompts(path)
 
 
+def test_load_prompts_missing_application_agent_section_raises(tmp_path):
+    path = write_prompts(
+        tmp_path,
+        f"""
+        coordinator:
+          system_prompt: Coordinator prompt.
+        continuity_editor:
+          system_prompt: Continuity prompt.
+        {RENDERING_SECTION}
+        """,
+    )
+
+    with pytest.raises(TypeError, match="application_agent"):
+        load_prompts(path)
+
+
 def test_load_prompts_missing_field_raises(tmp_path):
     path = write_prompts(
         tmp_path,
         f"""
         coordinator:
           system_prompt: Coordinator prompt.
+        application_agent:
+          system_prompt: Application prompt.
         continuity_editor: {{}}
         {RENDERING_SECTION}
         """,
@@ -94,6 +117,8 @@ def test_load_prompts_empty_field_raises(tmp_path):
         f"""
         coordinator:
           system_prompt: "   "
+        application_agent:
+          system_prompt: Application prompt.
         continuity_editor:
           system_prompt: Continuity prompt.
         {RENDERING_SECTION}
@@ -104,12 +129,32 @@ def test_load_prompts_empty_field_raises(tmp_path):
         load_prompts(path)
 
 
+def test_load_prompts_empty_application_agent_field_raises(tmp_path):
+    path = write_prompts(
+        tmp_path,
+        f"""
+        coordinator:
+          system_prompt: Coordinator prompt.
+        application_agent:
+          system_prompt: "   "
+        continuity_editor:
+          system_prompt: Continuity prompt.
+        {RENDERING_SECTION}
+        """,
+    )
+
+    with pytest.raises(RuntimeError, match="application_agent.system_prompt"):
+        load_prompts(path)
+
+
 def test_load_prompts_missing_requirements_raises(tmp_path):
     path = write_prompts(
         tmp_path,
         """
         coordinator:
           system_prompt: Coordinator prompt.
+        application_agent:
+          system_prompt: Application prompt.
         continuity_editor:
           system_prompt: Continuity prompt.
         rendering:
@@ -130,6 +175,8 @@ def test_load_prompts_empty_requirements_list_raises(tmp_path):
         """
         coordinator:
           system_prompt: Coordinator prompt.
+        application_agent:
+          system_prompt: Application prompt.
         continuity_editor:
           system_prompt: Continuity prompt.
         rendering:
@@ -151,6 +198,8 @@ def test_load_prompts_requirements_not_a_list_raises(tmp_path):
         """
         coordinator:
           system_prompt: Coordinator prompt.
+        application_agent:
+          system_prompt: Application prompt.
         continuity_editor:
           system_prompt: Continuity prompt.
         rendering:
@@ -172,6 +221,8 @@ def test_load_prompts_requirements_with_blank_item_raises(tmp_path):
         """
         coordinator:
           system_prompt: Coordinator prompt.
+        application_agent:
+          system_prompt: Application prompt.
         continuity_editor:
           system_prompt: Continuity prompt.
         rendering:
@@ -195,6 +246,8 @@ def test_load_prompts_missing_scene_brief_caption_raises(tmp_path):
         """
         coordinator:
           system_prompt: Coordinator prompt.
+        application_agent:
+          system_prompt: Application prompt.
         continuity_editor:
           system_prompt: Continuity prompt.
         rendering:
@@ -216,6 +269,8 @@ def test_load_prompts_missing_closing_instructions_raises(tmp_path):
         """
         coordinator:
           system_prompt: Coordinator prompt.
+        application_agent:
+          system_prompt: Application prompt.
         continuity_editor:
           system_prompt: Continuity prompt.
         rendering:

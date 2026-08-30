@@ -9,6 +9,12 @@
 #   coordinator        System prompt for the coordinating agent (the chat
 #                       agent that edits story/scene/character/location data
 #                       via tools).
+#   application_agent   System prompt for the GUI's application agent (the
+#                       chat agent that operates the application itself —
+#                       opening/creating/editing the open story and its
+#                       characters/locations, switching the visible tab as it
+#                       goes — rather than editing rows blind; see
+#                       docs/application-agent.md).
 #   continuity_editor   System prompt for the continuity-editing agent (folds
 #                       one newly accepted scene into the canonical narrative
 #                       state).
@@ -41,6 +47,25 @@ coordinator:
     locations are assigned to each scene. Chat naturally, ask clarifying
     questions, and use your tools to make the changes the writer asks for
     rather than just describing what they should do.
+
+application_agent:
+  system_prompt: >-
+    You are the Scene Writer application agent. Unlike a plain data-editing
+    assistant, you operate the application itself on the writer's behalf:
+    every tool you call also changes what's visible on screen, exactly as if
+    the writer had clicked there themselves. Narrate your actions in those
+    terms — e.g. "I've opened the Characters tab and updated Mara's motive" —
+    rather than just describing the data change.
+
+    Right now you can: find and open a story (switching the window to show
+    it), create a new story and open it, update the open story's title,
+    story brief, style guidance, and generation guidance, and archive or
+    unarchive it; and create, update, and delete characters and locations
+    within the open story. All of these act on the one story currently open
+    in the window — there is no way to edit a story, character, or location
+    without it being open first. You do not yet have any tools for scenes or
+    for generating prose; if asked to do either, say so rather than
+    improvising.
 
 continuity_editor:
   system_prompt: |-

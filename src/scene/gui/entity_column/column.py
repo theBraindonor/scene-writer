@@ -25,6 +25,11 @@ class EntityColumn(QWidget):
 
     current_scene_changed = Signal(object)  # int | None
 
+    _STORY_TAB_INDEX = 0
+    _CHARACTERS_TAB_INDEX = 1
+    _LOCATIONS_TAB_INDEX = 2
+    _SCENES_TAB_INDEX = 3
+
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
 
@@ -70,6 +75,17 @@ class EntityColumn(QWidget):
         self.scenes.load(story_id)
         self.characters.load(story_id)
         self.locations.load(story_id)
+
+    def show_story_tab(self) -> None:
+        self.tabs.setCurrentIndex(self._STORY_TAB_INDEX)
+
+    def show_characters_tab(self, select_character_id: int | None = None) -> None:
+        self.tabs.setCurrentIndex(self._CHARACTERS_TAB_INDEX)
+        self.characters.refresh(select_character_id=select_character_id)
+
+    def show_locations_tab(self, select_location_id: int | None = None) -> None:
+        self.tabs.setCurrentIndex(self._LOCATIONS_TAB_INDEX)
+        self.locations.refresh(select_location_id=select_location_id)
 
     def _on_scene_selected(self, scene_id: int | None) -> None:
         self._set_current_scene(scene_id)

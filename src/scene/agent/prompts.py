@@ -10,6 +10,7 @@ DEFAULT_PROMPTS_PATH = PROJECT_ROOT / "agent-prompts.yaml"
 @dataclass(frozen=True)
 class PromptSet:
     coordinator_system_prompt: str
+    application_agent_system_prompt: str
     continuity_editor_system_prompt: str
     rendering_fiction_prefix: str
     rendering_scene_generation_instructions: str
@@ -55,11 +56,15 @@ def load_prompts(prompts_path: Path | None = None) -> PromptSet:
         raise TypeError(f"{path} is malformed: expected a top-level mapping.")
 
     coordinator = _section(raw, path, "coordinator")
+    application_agent = _section(raw, path, "application_agent")
     continuity_editor = _section(raw, path, "continuity_editor")
     rendering = _section(raw, path, "rendering")
 
     return PromptSet(
         coordinator_system_prompt=_field(coordinator, path, "coordinator", "system_prompt"),
+        application_agent_system_prompt=_field(
+            application_agent, path, "application_agent", "system_prompt"
+        ),
         continuity_editor_system_prompt=_field(continuity_editor, path, "continuity_editor", "system_prompt"),
         rendering_fiction_prefix=_field(rendering, path, "rendering", "fiction_prefix"),
         rendering_scene_generation_instructions=_field(

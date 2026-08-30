@@ -98,6 +98,12 @@ concern.
 Parameter tables below describe intent, not a binding schema — types and required-ness
 should follow the same conventions the existing coordinator tools use.
 
+Character, Location, and Scene tools always act on the open story, with no `story_id`
+parameter of their own — unlike the coordinator's equivalent tools, which accept an
+optional `story_id` override because the coordinator has no notion of a story "on screen."
+The application agent has exactly one story open at a time by construction; touching a
+different story's data means opening it first via `open_story`.
+
 ### Story tools
 
 **`list_stories`** — Find a story to open by title. Excludes archived stories unless asked

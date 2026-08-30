@@ -3,12 +3,12 @@ from PySide6.QtGui import QResizeEvent, QShowEvent
 from PySide6.QtWidgets import QDialog, QFileDialog, QMainWindow, QMessageBox, QSplitter, QVBoxLayout, QWidget
 from sqlalchemy.exc import IntegrityError
 
+from scene.agent.application.state import ApplicationState, ApplicationTab
+from scene.agent.application.tools.character import build_character_tools
+from scene.agent.application.tools.location import build_location_tools
+from scene.agent.application.tools.story import build_story_tools
 from scene.agent.config import get_llm_config
-from scene.agent.coordinator.state import CoordinatorState
-from scene.agent.coordinator.tools.character import build_character_tools
-from scene.agent.coordinator.tools.location import build_location_tools
-from scene.agent.coordinator.tools.scene import build_scene_tools
-from scene.agent.coordinator.tools.story import build_story_tools
+from scene.agent.prompts import load_prompts
 from scene.agent.role import AgentRole
 from scene.core.scene import list_scenes
 from scene.data.database import session_scope
@@ -32,9 +32,11 @@ class MainWindow(QMainWindow):
     the entity column and the chat panel) and a right column (rendering column), the two columns
     themselves draggable via a horizontal splitter defaulting to an even 50/50 width split.
 
-    All regions are functional. The chat panel drives the same coordinating agent
-    `scene-coordinator chat` uses, sharing one `CoordinatorState`/tool list with this window so
-    direct edits and chat-driven edits stay in sync.
+    All regions are functional. The chat panel drives the application agent, which operates this
+    window directly (opening stories, switching tabs, editing records) rather than editing rows
+    blind — sharing one `ApplicationState`/tool list with this window so direct edits and
+    chat-driven edits stay in sync. This is a separate agent from `scene-coordinator chat`'s
+    coordinator, which the CLI still uses unchanged.
     """
 
     current_story_changed = Signal(object)  # int | None
@@ -83,21 +85,26 @@ class MainWindow(QMainWindow):
         # rather than relying on that as an implementation detail of EntityColumn.
         self.current_story_changed.connect(lambda _story_id: self.rendering_column.set_scene(None))
 
-        self.coordinator_state = CoordinatorState()
-        self.coordinator_tools = [
-            *build_story_tools(self.coordinator_state),
-            *build_scene_tools(self.coordinator_state),
-            *build_character_tools(self.coordinator_state),
-            *build_location_tools(self.coordinator_state),
+        self.application_state = ApplicationState()
+        self.application_tools = [
+            *build_story_tools(self.application_state),
+            *build_character_tools(self.application_state),
+            *build_location_tools(self.application_state),
         ]
         try:
-            llm_config = get_llm_config(AgentRole.COORDINATING)
+            llm_config = get_llm_config(AgentRole.APPLICATION)
             llm_error = None
         except (RuntimeError, TypeError) as error:
             llm_config = None
-            llm_error = f"Could not resolve the coordinating agent's model: {error}"
+            llm_error = f"Could not resolve the application agent's model: {error}"
 
-        self.chat_panel = ChatPanel(llm_config, self.coordinator_state, self.coordinator_tools, error=llm_error)
+        self.chat_panel = ChatPanel(
+            llm_config,
+            self.application_state,
+            self.application_tools,
+            system_prompt=load_prompts().application_agent_system_prompt,
+            error=llm_error,
+        )
         self.chat_panel.turn_completed.connect(self._on_chat_turn_completed)
         self.chat_panel.collapse_toggled.connect(self._on_chat_collapse_toggled)
         self._chat_expanded_height: int | None = None
@@ -301,13 +308,23 @@ class MainWindow(QMainWindow):
 
     def _on_story_selected(self, story_id: int | None) -> None:
         self.current_story_id = story_id
-        self.coordinator_state.current_story_id = story_id
+        self.application_state.current_story_id = story_id
         self.story_header.set_current_story(story_id)
         self.current_story_changed.emit(story_id)
 
     def _on_chat_turn_completed(self) -> None:
-        agent_story_id = self.coordinator_state.current_story_id
+        agent_story_id = self.application_state.current_story_id
         if agent_story_id != self.current_story_id:
             self._on_story_selected(agent_story_id)
         else:
             self.entity_column.set_story(self.current_story_id)
+        self._sync_entity_column_tab()
+
+    def _sync_entity_column_tab(self) -> None:
+        tab = self.application_state.current_tab
+        if tab is ApplicationTab.STORY:
+            self.entity_column.show_story_tab()
+        elif tab is ApplicationTab.CHARACTERS:
+            self.entity_column.show_characters_tab(self.application_state.current_character_id)
+        elif tab is ApplicationTab.LOCATIONS:
+            self.entity_column.show_locations_tab(self.application_state.current_location_id)

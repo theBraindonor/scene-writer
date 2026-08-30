@@ -4,10 +4,12 @@ import pytest
 
 import scene.agent.coordinator.loop as loop_module
 import scene.data.database as database_module
+from scene.agent.application.state import ApplicationState
+from scene.agent.application.tools.story import build_story_tools
 from scene.agent.config import LLMConfig
-from scene.agent.coordinator.state import CoordinatorState
-from scene.agent.coordinator.tools.story import build_story_tools
 from scene.gui.chat_panel import ChatPanel, _AgentTurnWidget, _UserMessageWidget
+
+TEST_SYSTEM_PROMPT = "Test system prompt."
 
 
 @pytest.fixture(autouse=True)
@@ -66,10 +68,10 @@ def make_config():
     return LLMConfig(model="openai/test-model", api_base=None, api_key=None)
 
 
-def make_panel(qtbot, error=None):
-    state = CoordinatorState()
+def make_panel(qtbot, error=None, system_prompt=TEST_SYSTEM_PROMPT):
+    state = ApplicationState()
     tools = build_story_tools(state)
-    panel = ChatPanel(make_config(), state, tools, error=error)
+    panel = ChatPanel(make_config(), state, tools, system_prompt=system_prompt, error=error)
     qtbot.addWidget(panel)
     panel.show()
     return panel, state
@@ -141,11 +143,26 @@ def test_blank_input_is_ignored(qtbot, monkeypatch):
 
 
 def test_error_config_disables_input(qtbot):
-    panel, _state = make_panel(qtbot, error="Could not resolve the coordinating agent's model: boom")
+    panel, _state = make_panel(qtbot, error="Could not resolve the application agent's model: boom")
 
     assert not panel.input_edit.isEnabled()
     assert panel.status_label.isVisible()
     assert "boom" in panel.status_label.text()
+
+
+def test_uses_provided_system_prompt(qtbot, monkeypatch):
+    captured_messages = []
+
+    def fake_stream_complete(config, messages, tools=None):
+        captured_messages.append(messages)
+        return iter([make_chunk(content="Hello!")])
+
+    monkeypatch.setattr(loop_module, "stream_complete", fake_stream_complete)
+    panel, _state = make_panel(qtbot, system_prompt="Custom prompt for this agent.")
+
+    send(qtbot, panel, "hi")
+
+    assert captured_messages[0][0] == {"role": "system", "content": "Custom prompt for this agent."}
 
 
 def test_transcript_has_white_background(qtbot):
