@@ -678,6 +678,129 @@ def test_generate_skips_accept_scene_without_continuity_config(qtbot, monkeypatc
     assert widget.continuity_snapshot_view.toPlainText() == NO_CONTINUITY_SNAPSHOT_TEXT
 
 
+def test_scene_settled_emits_immediately_with_no_continuity_configured(qtbot, monkeypatch):
+    scene_id = seed_scene()
+    events: list[RenderEvent] = [RenderContentDelta("Once upon a time."), RenderComplete("Once upon a time.")]
+    monkeypatch.setattr(rendering_column_module, "stream_render", _fake_stream(events))
+
+    widget = RenderingColumn(FAKE_CONFIG)
+    qtbot.addWidget(widget)
+    widget.set_scene(scene_id)
+
+    with qtbot.waitSignal(widget.scene_settled, timeout=2000):
+        widget.generate_button.click()
+
+    assert widget.last_generation_cancelled is False
+    assert widget.last_generation_error is None
+
+
+def test_scene_settled_waits_for_continuity_to_finish_on_success(qtbot, monkeypatch):
+    scene_id = seed_scene()
+    events: list[RenderEvent] = [RenderContentDelta("Once upon a time."), RenderComplete("Once upon a time.")]
+    monkeypatch.setattr(rendering_column_module, "stream_render", _fake_stream(events))
+    monkeypatch.setattr(rendering_column_module, "stream_accept_scene", _fake_accept_scene([]))
+
+    widget = RenderingColumn(FAKE_CONFIG, FAKE_CONTINUITY_CONFIG)
+    qtbot.addWidget(widget)
+    widget.set_scene(scene_id)
+
+    settled = []
+    widget.scene_settled.connect(lambda: settled.append(True))
+
+    with qtbot.waitSignal(widget.generation_finished, timeout=2000):
+        widget.generate_button.click()
+    # `scene_settled` must not have fired yet -- the continuity task kicked off by generation
+    # finishing is still running at this point.
+    assert settled == []
+
+    qtbot.waitUntil(lambda: settled == [True], timeout=2000)
+    assert widget.last_generation_cancelled is False
+    assert widget.last_generation_error is None
+
+
+def test_scene_settled_and_last_generation_cancelled_reflect_a_cancel(qtbot, monkeypatch):
+    scene_id = seed_scene()
+    gate = threading.Event()
+
+    def _stream(config, messages) -> Iterator[RenderEvent]:
+        yield RenderContentDelta("Hello ")
+        gate.wait(timeout=2)
+        yield RenderContentDelta("world.")
+        yield RenderComplete("Hello world.")
+
+    monkeypatch.setattr(rendering_column_module, "stream_render", _stream)
+    monkeypatch.setattr(QMessageBox, "question", staticmethod(lambda *args, **kwargs: QMessageBox.StandardButton.Yes))
+
+    def unexpected_accept_scene(config, session, story_id, accepted_scene_id):
+        raise AssertionError("stream_accept_scene() should not be called for a cancelled generation")
+
+    monkeypatch.setattr(rendering_column_module, "stream_accept_scene", unexpected_accept_scene)
+
+    widget = RenderingColumn(FAKE_CONFIG, FAKE_CONTINUITY_CONFIG)
+    qtbot.addWidget(widget)
+    widget.set_scene(scene_id)
+
+    widget.generate_button.click()
+    qtbot.waitUntil(lambda: widget.body_view.toPlainText() == "Hello ", timeout=2000)
+    with qtbot.waitSignal(widget.scene_settled, timeout=2000):
+        widget.cancel_button.click()
+        gate.set()
+
+    assert widget.last_generation_cancelled is True
+    assert widget.last_generation_error is None
+
+
+def test_last_generation_error_reflects_a_stream_error(qtbot, monkeypatch):
+    scene_id = seed_scene()
+
+    def _stream(config, messages) -> Iterator[RenderEvent]:
+        yield RenderContentDelta("Once upon a time,")
+        raise ConnectionError("connection reset")
+
+    monkeypatch.setattr(rendering_column_module, "stream_render", _stream)
+
+    widget = RenderingColumn(FAKE_CONFIG)
+    qtbot.addWidget(widget)
+    widget.set_scene(scene_id)
+
+    with qtbot.waitSignal(widget.scene_settled, timeout=2000):
+        widget.generate_button.click()
+
+    assert widget.last_generation_cancelled is False
+    assert widget.last_generation_error == "connection reset"
+
+
+def test_generate_now_bypasses_preview_prompt_dialog_even_when_checked(qtbot, monkeypatch):
+    scene_id = seed_scene()
+    events: list[RenderEvent] = [RenderContentDelta("Once upon a time."), RenderComplete("Once upon a time.")]
+    monkeypatch.setattr(rendering_column_module, "stream_render", _fake_stream(events))
+
+    def unexpected_exec(self):
+        raise AssertionError("Preview Prompt dialog should not open for generate_now()")
+
+    monkeypatch.setattr(_PromptPreviewDialog, "exec", unexpected_exec)
+
+    widget = RenderingColumn(FAKE_CONFIG)
+    qtbot.addWidget(widget)
+    widget.set_scene(scene_id)
+    widget.preview_prompt_checkbox.setChecked(True)
+
+    with qtbot.waitSignal(widget.generation_finished, timeout=2000):
+        assert widget.generate_now() is True
+
+    with session_scope() as session:
+        renderings = list_renderings(session, scene_id)
+    assert len(renderings) == 1
+    assert renderings[0].body == "Once upon a time."
+
+
+def test_generate_now_returns_false_without_a_selected_scene(qtbot):
+    widget = RenderingColumn(FAKE_CONFIG)
+    qtbot.addWidget(widget)
+
+    assert widget.generate_now() is False
+
+
 def test_generate_shows_continuity_notice_when_accept_scene_fails(qtbot, monkeypatch):
     scene_id = seed_scene()
     events: list[RenderEvent] = [RenderContentDelta("Once upon a time."), RenderComplete("Once upon a time.")]

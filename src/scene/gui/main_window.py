@@ -1,6 +1,6 @@
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QResizeEvent, QShowEvent
-from PySide6.QtWidgets import QMainWindow, QMessageBox, QSplitter, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QDialog, QMainWindow, QMessageBox, QSplitter, QVBoxLayout, QWidget
 
 from scene.agent.config import get_llm_config
 from scene.agent.coordinator.state import CoordinatorState
@@ -9,15 +9,19 @@ from scene.agent.coordinator.tools.location import build_location_tools
 from scene.agent.coordinator.tools.scene import build_scene_tools
 from scene.agent.coordinator.tools.story import build_story_tools
 from scene.agent.role import AgentRole
+from scene.core.scene import list_scenes
 from scene.data.database import session_scope
 from scene.gui.about_dialog import AboutDialog
 from scene.gui.chat_panel import ChatPanel
 from scene.gui.entity_column.column import EntityColumn
 from scene.gui.full_story_dialog import FullStoryDialog, combine_story_prose, save_text_to_file
+from scene.gui.full_story_render import FullStoryRenderController, RenderFullStoryConfirmDialog
 from scene.gui.rendering_column import RenderingColumn
 from scene.gui.story_header import StoryHeader
 
 NO_STORY_SELECTED_FOR_RENDER_TEXT = "Select a story first."
+NO_SCENES_FOR_RENDER_TEXT = "This story has no scenes."
+RENDERING_NOT_CONFIGURED_TEXT = "Rendering is not configured. See the Rendering panel for details."
 
 
 class MainWindow(QMainWindow):
@@ -39,6 +43,7 @@ class MainWindow(QMainWindow):
         self.current_story_id: int | None = None
         self._horizontal_manually_adjusted = False
         self._vertical_sizes_applied = False
+        self._full_story_render_controller: FullStoryRenderController | None = None
 
         self.story_header = StoryHeader()
         self.story_header.story_selected.connect(self._on_story_selected)
@@ -141,6 +146,8 @@ class MainWindow(QMainWindow):
         exit_action.triggered.connect(self.close)
 
         render_menu = self.menuBar().addMenu("&Render")
+        self.render_full_story_action = render_menu.addAction("&Render Full Story...")
+        self.render_full_story_action.triggered.connect(self._on_render_full_story)
         view_full_story_action = render_menu.addAction("&View Full Story...")
         view_full_story_action.triggered.connect(self._on_view_full_story)
         save_full_story_action = render_menu.addAction("&Save Full Story...")
@@ -149,6 +156,31 @@ class MainWindow(QMainWindow):
         help_menu = self.menuBar().addMenu("&Help")
         about_action = help_menu.addAction("&About Scene Writer")
         about_action.triggered.connect(self._on_about)
+
+    def _on_render_full_story(self) -> None:
+        if self.current_story_id is None:
+            QMessageBox.information(self, "Render Full Story", NO_STORY_SELECTED_FOR_RENDER_TEXT)
+            return
+        with session_scope() as session:
+            has_scenes = bool(list_scenes(session, self.current_story_id))
+        if not has_scenes:
+            QMessageBox.information(self, "Render Full Story", NO_SCENES_FOR_RENDER_TEXT)
+            return
+        if self.rendering_column._llm_config is None:
+            QMessageBox.information(self, "Render Full Story", RENDERING_NOT_CONFIGURED_TEXT)
+            return
+        dialog = RenderFullStoryConfirmDialog(self)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+        self.render_full_story_action.setEnabled(False)
+        controller = FullStoryRenderController(self)
+        controller.finished.connect(self._on_full_story_render_finished)
+        self._full_story_render_controller = controller
+        controller.start(self.current_story_id)
+
+    def _on_full_story_render_finished(self) -> None:
+        self._full_story_render_controller = None
+        self.render_full_story_action.setEnabled(True)
 
     def _on_view_full_story(self) -> None:
         if self.current_story_id is None:

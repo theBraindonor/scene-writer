@@ -193,6 +193,7 @@ class RenderingColumn(QWidget):
     """
 
     generation_finished = Signal()
+    scene_settled = Signal()
 
     def __init__(
         self,
@@ -223,6 +224,8 @@ class RenderingColumn(QWidget):
         self._error_message: str | None = None
         self._continuity_display_text = ""
         self._continuity_display_scene_id: int | None = None
+        self.last_generation_cancelled = False
+        self.last_generation_error: str | None = None
 
         self.no_selection_label = QLabel(NO_SCENE_SELECTED_TEXT)
         self.no_selection_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -489,23 +492,39 @@ class RenderingColumn(QWidget):
 
     # -- generate / cancel ----------------------------------------------------
 
-    def _on_generate_clicked(self) -> None:
+    def _build_messages_or_notify(self) -> list[dict] | None:
         if self.current_scene_id is None or self.current_story_id is None or self._llm_config is None:
-            return
+            return None
         if self._generating:
-            return
+            return None
         with session_scope() as session:
             try:
                 messages = build_render_messages(session, self.current_story_id, self.current_scene_id)
             except ValueError as error:
                 self._show_notice(str(error))
-                return
+                return None
         self._hide_notice()
+        return messages
+
+    def _on_generate_clicked(self) -> None:
+        messages = self._build_messages_or_notify()
+        if messages is None:
+            return
         if self.preview_prompt_checkbox.isChecked():
             dialog = _PromptPreviewDialog(messages, self)
             if dialog.exec() != QDialog.DialogCode.Accepted:
                 return
         self._start_generation(messages)
+
+    def generate_now(self) -> bool:
+        """Start generation for the current scene immediately, bypassing the Preview Prompt
+        checkbox -- used by full-story batch rendering (`FullStoryRenderController`), which must
+        run unattended across every scene without a modal dialog blocking each one."""
+        messages = self._build_messages_or_notify()
+        if messages is None:
+            return False
+        self._start_generation(messages)
+        return True
 
     def _start_generation(self, messages: list[dict]) -> None:
         self._generating = True
@@ -585,6 +604,8 @@ class RenderingColumn(QWidget):
         body_reasoning = self._reasoning_text or None
         was_cancelled = self._cancel_requested
         error_message = self._error_message
+        self.last_generation_cancelled = was_cancelled
+        self.last_generation_error = error_message
 
         self._generating = False
         self._generating_scene_id = None
@@ -600,6 +621,7 @@ class RenderingColumn(QWidget):
         else:
             self.progress_label.setText("Rendering scene prose... Done.")
 
+        continuity_started = False
         if assembled:
             with session_scope() as session:
                 rendering = create_rendering(session, scene_id=scene_id, body=assembled, body_reasoning=body_reasoning)
@@ -608,6 +630,7 @@ class RenderingColumn(QWidget):
             if self._continuity_config is not None and generated_scene is not None and not was_cancelled:
                 story_id = generated_scene.story_id
                 self._continuity_busy = True
+                continuity_started = True
                 self._start_continuity_task(
                     lambda: self._accept_scene_events(story_id, scene_id),
                     CONTINUITY_UPDATE_FAILED_TEXT,
@@ -623,6 +646,8 @@ class RenderingColumn(QWidget):
                 self._show_notice(CANCELLED_SAVED_TEXT if assembled else CANCELLED_EMPTY_TEXT)
 
         self.generation_finished.emit()
+        if not continuity_started:
+            self.scene_settled.emit()
 
     # -- continuity editor ---------------------------------------------------
 
@@ -697,6 +722,7 @@ class RenderingColumn(QWidget):
         # fire before this handler even runs. Scheduling a fresh scroll here makes the final
         # scrolled-to-end state deterministic regardless of that race.
         self._schedule_scroll_continuity_to_end()
+        self.scene_settled.emit()
 
     # -- notices ---------------------------------------------------------------
 

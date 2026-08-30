@@ -1,8 +1,8 @@
 from dataclasses import dataclass, field
 
 import pytest
-from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QMessageBox
+from PySide6.QtCore import QObject, Qt, Signal
+from PySide6.QtWidgets import QDialog, QMessageBox
 
 import scene.agent.coordinator.loop as loop_module
 import scene.data.database as database_module
@@ -430,11 +430,11 @@ def seed_rendered_story():
     return story_id
 
 
-def test_render_menu_has_view_and_save_full_story_actions(qtbot):
+def test_render_menu_has_render_view_and_save_full_story_actions(qtbot):
     window = make_window(qtbot)
 
     titles = [action.text() for action in find_menu(window, "&Render").actions()]
-    assert titles == ["&View Full Story...", "&Save Full Story..."]
+    assert titles == ["&Render Full Story...", "&View Full Story...", "&Save Full Story..."]
 
 
 def test_view_full_story_with_no_story_selected_shows_message(qtbot, monkeypatch):
@@ -493,7 +493,91 @@ def test_save_full_story_saves_combined_prose_without_opening_viewer(qtbot, monk
 
     find_action(find_menu(window, "&Render"), "&Save Full Story...").trigger()
 
-    assert save_calls == ["Once upon a time."]
+
+def test_render_full_story_with_no_story_selected_shows_message(qtbot, monkeypatch):
+    window = make_window(qtbot)
+    seen = []
+    monkeypatch.setattr(QMessageBox, "information", lambda *args, **kwargs: seen.append(args[1:]))
+
+    find_action(find_menu(window, "&Render"), "&Render Full Story...").trigger()
+
+    assert seen == [("Render Full Story", "Select a story first.")]
+
+
+def test_render_full_story_with_no_scenes_shows_message(qtbot, monkeypatch):
+    story_id = seed_story("A Story")
+    window = make_window(qtbot)
+    select_story(window, story_id)
+    seen = []
+    monkeypatch.setattr(QMessageBox, "information", lambda *args, **kwargs: seen.append(args[1:]))
+
+    find_action(find_menu(window, "&Render"), "&Render Full Story...").trigger()
+
+    assert seen == [("Render Full Story", "This story has no scenes.")]
+
+
+def test_render_full_story_with_rendering_not_configured_shows_message(qtbot, monkeypatch):
+    story_id = seed_rendered_story()
+    window = make_window(qtbot)
+    select_story(window, story_id)
+    window.rendering_column._llm_config = None
+    seen = []
+    monkeypatch.setattr(QMessageBox, "information", lambda *args, **kwargs: seen.append(args[1:]))
+
+    find_action(find_menu(window, "&Render"), "&Render Full Story...").trigger()
+
+    assert seen == [("Render Full Story", "Rendering is not configured. See the Rendering panel for details.")]
+
+
+def test_render_full_story_confirm_dialog_cancel_is_a_noop(qtbot, monkeypatch):
+    story_id = seed_rendered_story()
+    window = make_window(qtbot)
+    select_story(window, story_id)
+    monkeypatch.setattr(
+        main_window_module.RenderFullStoryConfirmDialog, "exec", lambda self: QDialog.DialogCode.Rejected
+    )
+    monkeypatch.setattr(
+        main_window_module,
+        "FullStoryRenderController",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("controller should not start")),
+    )
+
+    find_action(find_menu(window, "&Render"), "&Render Full Story...").trigger()
+
+    assert window.render_full_story_action.isEnabled()
+
+
+def test_render_full_story_proceed_starts_controller_and_toggles_action(qtbot, monkeypatch):
+    story_id = seed_rendered_story()
+    window = make_window(qtbot)
+    select_story(window, story_id)
+    monkeypatch.setattr(
+        main_window_module.RenderFullStoryConfirmDialog, "exec", lambda self: QDialog.DialogCode.Accepted
+    )
+
+    class FakeController(QObject):
+        finished = Signal()
+
+        def __init__(self, main_window):
+            super().__init__(main_window)
+            self.started_with = None
+
+        def start(self, story_id):
+            self.started_with = story_id
+
+    monkeypatch.setattr(main_window_module, "FullStoryRenderController", FakeController)
+
+    find_action(find_menu(window, "&Render"), "&Render Full Story...").trigger()
+
+    controller = window._full_story_render_controller
+    assert isinstance(controller, FakeController)
+    assert controller.started_with == story_id
+    assert not window.render_full_story_action.isEnabled()
+
+    controller.finished.emit()
+
+    assert window._full_story_render_controller is None
+    assert window.render_full_story_action.isEnabled()
 
 
 def test_help_menu_about_action_shows_about_dialog(qtbot, monkeypatch):
