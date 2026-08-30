@@ -1,6 +1,6 @@
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QResizeEvent, QShowEvent
-from PySide6.QtWidgets import QMainWindow, QSplitter, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QMainWindow, QMessageBox, QSplitter, QVBoxLayout, QWidget
 
 from scene.agent.config import get_llm_config
 from scene.agent.coordinator.state import CoordinatorState
@@ -9,6 +9,7 @@ from scene.agent.coordinator.tools.location import build_location_tools
 from scene.agent.coordinator.tools.scene import build_scene_tools
 from scene.agent.coordinator.tools.story import build_story_tools
 from scene.agent.role import AgentRole
+from scene.gui.about_dialog import AboutDialog
 from scene.gui.chat_panel import ChatPanel
 from scene.gui.entity_column.column import EntityColumn
 from scene.gui.rendering_column import RenderingColumn
@@ -122,6 +123,37 @@ class MainWindow(QMainWindow):
         layout = QVBoxLayout(central)
         layout.addWidget(self.splitter)
         self.setCentralWidget(central)
+
+        self._build_menu_bar()
+
+    def _build_menu_bar(self) -> None:
+        file_menu = self.menuBar().addMenu("&File")
+        new_action = file_menu.addAction("&New Story...")
+        new_action.triggered.connect(self.story_header.new_story_button.click)
+        open_action = file_menu.addAction("&Open Story...")
+        open_action.triggered.connect(self.story_header.open_button.click)
+        file_menu.addSeparator()
+        exit_action = file_menu.addAction("E&xit")
+        exit_action.triggered.connect(self.close)
+
+        render_menu = self.menuBar().addMenu("&Render")
+        view_full_story_action = render_menu.addAction("&View Full Story...")
+        view_full_story_action.triggered.connect(self._on_view_full_story)
+        export_full_story_action = render_menu.addAction("&Export Full Story...")
+        export_full_story_action.triggered.connect(self._on_export_full_story)
+
+        help_menu = self.menuBar().addMenu("&Help")
+        about_action = help_menu.addAction("&About Scene Writer")
+        about_action.triggered.connect(self._on_about)
+
+    def _on_view_full_story(self) -> None:
+        QMessageBox.information(self, "View Full Story", "Not yet implemented.")
+
+    def _on_export_full_story(self) -> None:
+        QMessageBox.information(self, "Export Full Story", "Not yet implemented.")
+
+    def _on_about(self) -> None:
+        AboutDialog(self).exec()
 
     def showEvent(self, event: QShowEvent) -> None:
         super().showEvent(event)

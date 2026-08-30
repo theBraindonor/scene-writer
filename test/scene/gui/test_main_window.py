@@ -2,6 +2,7 @@ from dataclasses import dataclass, field
 
 import pytest
 from PySide6.QtCore import Qt
+from PySide6.QtWidgets import QMessageBox
 
 import scene.agent.coordinator.loop as loop_module
 import scene.data.database as database_module
@@ -367,3 +368,75 @@ def test_chat_creating_character_refreshes_entity_column(qtbot, monkeypatch):
         assert len(list_characters(session, story_id)) == 1
     assert window.entity_column.characters.list_widget.count() == 1
     assert window.entity_column.characters.list_widget.item(0).text() == "Alex"
+
+
+def find_menu(window, title):
+    for action in window.menuBar().actions():
+        if action.text() == title:
+            return action.menu()
+    raise AssertionError(f"No menu titled {title!r}")
+
+
+def find_action(menu, text):
+    for action in menu.actions():
+        if action.text() == text:
+            return action
+    raise AssertionError(f"No action titled {text!r}")
+
+
+def test_menu_bar_has_file_render_and_help_menus(qtbot):
+    window = make_window(qtbot)
+
+    titles = [action.text() for action in window.menuBar().actions()]
+    assert titles == ["&File", "&Render", "&Help"]
+
+
+def test_file_menu_new_story_action_creates_a_story(qtbot, monkeypatch):
+    window = make_window(qtbot)
+    monkeypatch.setattr(window.story_header, "_prompt_new_story", lambda: ("New Story", "A scenario", None))
+
+    with qtbot.waitSignal(window.current_story_changed, timeout=1000):
+        find_action(find_menu(window, "&File"), "&New Story...").trigger()
+
+    assert window.story_header.story_label.text() == "New Story"
+
+
+def test_file_menu_open_story_action_opens_the_selected_story(qtbot, monkeypatch):
+    story_id = seed_story("A Story")
+    window = make_window(qtbot)
+    monkeypatch.setattr(window.story_header, "_prompt_story_picker", lambda: story_id)
+
+    with qtbot.waitSignal(window.current_story_changed, timeout=1000) as blocker:
+        find_action(find_menu(window, "&File"), "&Open Story...").trigger()
+
+    assert blocker.args == [story_id]
+
+
+def test_file_menu_exit_action_closes_the_window(qtbot):
+    window = make_window(qtbot)
+    assert window.isVisible()
+
+    find_action(find_menu(window, "&File"), "E&xit").trigger()
+
+    assert not window.isVisible()
+
+
+def test_render_menu_actions_show_placeholder_messages(qtbot, monkeypatch):
+    window = make_window(qtbot)
+    seen = []
+    monkeypatch.setattr(QMessageBox, "information", lambda *args, **kwargs: seen.append(args[1:]))
+
+    find_action(find_menu(window, "&Render"), "&View Full Story...").trigger()
+    find_action(find_menu(window, "&Render"), "&Export Full Story...").trigger()
+
+    assert seen == [("View Full Story", "Not yet implemented."), ("Export Full Story", "Not yet implemented.")]
+
+
+def test_help_menu_about_action_shows_about_dialog(qtbot, monkeypatch):
+    window = make_window(qtbot)
+    shown = []
+    monkeypatch.setattr(main_window_module.AboutDialog, "exec", lambda self: shown.append(True))
+
+    find_action(find_menu(window, "&Help"), "&About Scene Writer").trigger()
+
+    assert shown == [True]
