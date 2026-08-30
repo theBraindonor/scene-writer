@@ -421,15 +421,79 @@ def test_file_menu_exit_action_closes_the_window(qtbot):
     assert not window.isVisible()
 
 
-def test_render_menu_actions_show_placeholder_messages(qtbot, monkeypatch):
+def seed_rendered_story():
+    story_id = seed_story("A Story")
+    with session_scope() as session:
+        scene = create_scene(session, story_id=story_id, position=0, brief="Opening")
+        rendering = create_rendering(session, scene_id=scene.id, body="Once upon a time.")
+        set_active_rendering(session, rendering.id)
+    return story_id
+
+
+def test_render_menu_has_view_and_save_full_story_actions(qtbot):
+    window = make_window(qtbot)
+
+    titles = [action.text() for action in find_menu(window, "&Render").actions()]
+    assert titles == ["&View Full Story...", "&Save Full Story..."]
+
+
+def test_view_full_story_with_no_story_selected_shows_message(qtbot, monkeypatch):
     window = make_window(qtbot)
     seen = []
     monkeypatch.setattr(QMessageBox, "information", lambda *args, **kwargs: seen.append(args[1:]))
 
     find_action(find_menu(window, "&Render"), "&View Full Story...").trigger()
-    find_action(find_menu(window, "&Render"), "&Export Full Story...").trigger()
 
-    assert seen == [("View Full Story", "Not yet implemented."), ("Export Full Story", "Not yet implemented.")]
+    assert seen == [("View Full Story", "Select a story first.")]
+
+
+def test_save_full_story_with_no_story_selected_shows_message(qtbot, monkeypatch):
+    window = make_window(qtbot)
+    seen = []
+    monkeypatch.setattr(QMessageBox, "information", lambda *args, **kwargs: seen.append(args[1:]))
+
+    find_action(find_menu(window, "&Render"), "&Save Full Story...").trigger()
+
+    assert seen == [("Save Full Story", "Select a story first.")]
+
+
+def test_view_full_story_opens_dialog_with_combined_prose(qtbot, monkeypatch):
+    story_id = seed_rendered_story()
+    window = make_window(qtbot)
+    select_story(window, story_id)
+
+    seen = []
+
+    class FakeDialog:
+        def __init__(self, text, parent):
+            seen.append(text)
+
+        def exec(self):
+            return None
+
+    monkeypatch.setattr(main_window_module, "FullStoryDialog", FakeDialog)
+
+    find_action(find_menu(window, "&Render"), "&View Full Story...").trigger()
+
+    assert seen == ["Once upon a time."]
+
+
+def test_save_full_story_saves_combined_prose_without_opening_viewer(qtbot, monkeypatch):
+    story_id = seed_rendered_story()
+    window = make_window(qtbot)
+    select_story(window, story_id)
+
+    save_calls = []
+    monkeypatch.setattr(main_window_module, "save_text_to_file", lambda parent, text: save_calls.append(text))
+    monkeypatch.setattr(
+        main_window_module,
+        "FullStoryDialog",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("viewer should not open")),
+    )
+
+    find_action(find_menu(window, "&Render"), "&Save Full Story...").trigger()
+
+    assert save_calls == ["Once upon a time."]
 
 
 def test_help_menu_about_action_shows_about_dialog(qtbot, monkeypatch):

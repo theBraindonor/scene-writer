@@ -9,11 +9,15 @@ from scene.agent.coordinator.tools.location import build_location_tools
 from scene.agent.coordinator.tools.scene import build_scene_tools
 from scene.agent.coordinator.tools.story import build_story_tools
 from scene.agent.role import AgentRole
+from scene.data.database import session_scope
 from scene.gui.about_dialog import AboutDialog
 from scene.gui.chat_panel import ChatPanel
 from scene.gui.entity_column.column import EntityColumn
+from scene.gui.full_story_dialog import FullStoryDialog, combine_story_prose, save_text_to_file
 from scene.gui.rendering_column import RenderingColumn
 from scene.gui.story_header import StoryHeader
+
+NO_STORY_SELECTED_FOR_RENDER_TEXT = "Select a story first."
 
 
 class MainWindow(QMainWindow):
@@ -139,18 +143,28 @@ class MainWindow(QMainWindow):
         render_menu = self.menuBar().addMenu("&Render")
         view_full_story_action = render_menu.addAction("&View Full Story...")
         view_full_story_action.triggered.connect(self._on_view_full_story)
-        export_full_story_action = render_menu.addAction("&Export Full Story...")
-        export_full_story_action.triggered.connect(self._on_export_full_story)
+        save_full_story_action = render_menu.addAction("&Save Full Story...")
+        save_full_story_action.triggered.connect(self._on_save_full_story)
 
         help_menu = self.menuBar().addMenu("&Help")
         about_action = help_menu.addAction("&About Scene Writer")
         about_action.triggered.connect(self._on_about)
 
     def _on_view_full_story(self) -> None:
-        QMessageBox.information(self, "View Full Story", "Not yet implemented.")
+        if self.current_story_id is None:
+            QMessageBox.information(self, "View Full Story", NO_STORY_SELECTED_FOR_RENDER_TEXT)
+            return
+        with session_scope() as session:
+            text = combine_story_prose(session, self.current_story_id)
+        FullStoryDialog(text, self).exec()
 
-    def _on_export_full_story(self) -> None:
-        QMessageBox.information(self, "Export Full Story", "Not yet implemented.")
+    def _on_save_full_story(self) -> None:
+        if self.current_story_id is None:
+            QMessageBox.information(self, "Save Full Story", NO_STORY_SELECTED_FOR_RENDER_TEXT)
+            return
+        with session_scope() as session:
+            text = combine_story_prose(session, self.current_story_id)
+        save_text_to_file(self, text)
 
     def _on_about(self) -> None:
         AboutDialog(self).exec()
