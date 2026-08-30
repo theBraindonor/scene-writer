@@ -1,8 +1,9 @@
 from dataclasses import dataclass, field
 
 import pytest
+import yaml
 from PySide6.QtCore import QObject, Qt, Signal
-from PySide6.QtWidgets import QDialog, QMessageBox
+from PySide6.QtWidgets import QDialog, QFileDialog, QMessageBox
 
 import scene.agent.coordinator.loop as loop_module
 import scene.data.database as database_module
@@ -12,7 +13,7 @@ from scene.agent.role import AgentRole
 from scene.core.character import list_characters
 from scene.core.rendering import create_rendering, set_active_rendering
 from scene.core.scene import create_scene, list_scenes
-from scene.core.story import create_story
+from scene.core.story import create_story, list_stories
 from scene.data.database import session_scope
 from scene.gui.main_window import MainWindow
 from scene.gui.rendering_column import NO_SCENE_SELECTED_TEXT
@@ -421,11 +422,11 @@ def test_file_menu_exit_action_closes_the_window(qtbot):
     assert not window.isVisible()
 
 
-def test_file_menu_has_new_open_export_and_exit_actions(qtbot):
+def test_file_menu_has_new_open_export_import_and_exit_actions(qtbot):
     window = make_window(qtbot)
 
     titles = [action.text() for action in find_menu(window, "&File").actions() if not action.isSeparator()]
-    assert titles == ["&New Story...", "&Open Story...", "&Export Story...", "E&xit"]
+    assert titles == ["&New Story...", "&Open Story...", "&Export Story...", "&Import Story...", "E&xit"]
 
 
 def test_export_story_with_no_story_selected_shows_message(qtbot, monkeypatch):
@@ -452,6 +453,120 @@ def test_export_story_saves_export_data(qtbot, monkeypatch):
     find_action(find_menu(window, "&File"), "&Export Story...").trigger()
 
     assert save_calls == [expected]
+
+
+def write_export_file(tmp_path, story_id, title=None, name="story.yaml"):
+    with session_scope() as session:
+        data = main_window_module.build_story_export_data(session, story_id)
+    if title is not None:
+        data["story"]["title"] = title
+    path = tmp_path / name
+    path.write_text(yaml.safe_dump(data), encoding="utf-8")
+    return str(path)
+
+
+def test_import_story_with_cancelled_file_dialog_does_nothing(qtbot, monkeypatch):
+    window = make_window(qtbot)
+    monkeypatch.setattr(QFileDialog, "getOpenFileName", lambda *args, **kwargs: ("", ""))
+
+    find_action(find_menu(window, "&File"), "&Import Story...").trigger()
+
+    with session_scope() as session:
+        assert list_stories(session) == []
+
+
+def test_import_story_with_invalid_file_shows_error(qtbot, monkeypatch, tmp_path):
+    window = make_window(qtbot)
+    bad_path = tmp_path / "bad.yaml"
+    bad_path.write_text("not: [a, valid, export", encoding="utf-8")
+    monkeypatch.setattr(QFileDialog, "getOpenFileName", lambda *args, **kwargs: (str(bad_path), ""))
+    seen = []
+    monkeypatch.setattr(QMessageBox, "critical", lambda *args, **kwargs: seen.append(args[1:]))
+
+    find_action(find_menu(window, "&File"), "&Import Story...").trigger()
+
+    assert seen and seen[0][0] == "Import Story"
+    with session_scope() as session:
+        assert list_stories(session) == []
+
+
+def test_import_story_without_title_conflict_imports_and_selects_the_story(qtbot, monkeypatch, tmp_path):
+    template_story_id = seed_story("Template Story")
+    with session_scope() as session:
+        create_scene(session, story_id=template_story_id, position=0, brief="Opening")
+    path = write_export_file(tmp_path, template_story_id, title="Imported Story")
+
+    window = make_window(qtbot)
+    monkeypatch.setattr(QFileDialog, "getOpenFileName", lambda *args, **kwargs: (path, ""))
+
+    with qtbot.waitSignal(window.current_story_changed, timeout=1000) as blocker:
+        find_action(find_menu(window, "&File"), "&Import Story...").trigger()
+
+    new_story_id = blocker.args[0]
+    assert new_story_id != template_story_id
+    assert window.current_story_id == new_story_id
+    with session_scope() as session:
+        titles = {story.title for story in list_stories(session)}
+    assert titles == {"Template Story", "Imported Story"}
+
+
+def test_import_story_with_title_conflict_prompts_and_imports_under_new_title(qtbot, monkeypatch, tmp_path):
+    existing_story_id = seed_story("A Story")
+    export_source_id = seed_story("Export Source")
+    with session_scope() as session:
+        create_scene(session, story_id=export_source_id, position=0, brief="Opening")
+    path = write_export_file(tmp_path, export_source_id, title="A Story")
+
+    window = make_window(qtbot)
+    monkeypatch.setattr(QFileDialog, "getOpenFileName", lambda *args, **kwargs: (path, ""))
+
+    class FakeDialog:
+        def __init__(self, title, parent):
+            self._title = title
+
+        def exec(self):
+            return QDialog.DialogCode.Accepted
+
+        def new_title(self):
+            return "A Story (2)"
+
+    monkeypatch.setattr(main_window_module, "DuplicateStoryTitleDialog", FakeDialog)
+
+    with qtbot.waitSignal(window.current_story_changed, timeout=1000) as blocker:
+        find_action(find_menu(window, "&File"), "&Import Story...").trigger()
+
+    new_story_id = blocker.args[0]
+    assert new_story_id != existing_story_id
+    with session_scope() as session:
+        titles = {story.title for story in list_stories(session)}
+    assert titles == {"A Story", "Export Source", "A Story (2)"}
+
+
+def test_import_story_title_conflict_cancelled_aborts_import(qtbot, monkeypatch, tmp_path):
+    seed_story("A Story")
+    export_source_id = seed_story("Export Source")
+    with session_scope() as session:
+        create_scene(session, story_id=export_source_id, position=0, brief="Opening")
+    path = write_export_file(tmp_path, export_source_id, title="A Story")
+
+    window = make_window(qtbot)
+    monkeypatch.setattr(QFileDialog, "getOpenFileName", lambda *args, **kwargs: (path, ""))
+
+    class FakeDialog:
+        def __init__(self, title, parent):
+            pass
+
+        def exec(self):
+            return QDialog.DialogCode.Rejected
+
+    monkeypatch.setattr(main_window_module, "DuplicateStoryTitleDialog", FakeDialog)
+
+    find_action(find_menu(window, "&File"), "&Import Story...").trigger()
+
+    assert window.current_story_id is None
+    with session_scope() as session:
+        titles = {story.title for story in list_stories(session)}
+    assert titles == {"A Story", "Export Source"}
 
 
 def seed_rendered_story():

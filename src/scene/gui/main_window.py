@@ -1,6 +1,7 @@
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QResizeEvent, QShowEvent
-from PySide6.QtWidgets import QDialog, QMainWindow, QMessageBox, QSplitter, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QDialog, QFileDialog, QMainWindow, QMessageBox, QSplitter, QVBoxLayout, QWidget
+from sqlalchemy.exc import IntegrityError
 
 from scene.agent.config import get_llm_config
 from scene.agent.coordinator.state import CoordinatorState
@@ -19,6 +20,7 @@ from scene.gui.full_story_render import FullStoryRenderController, RenderFullSto
 from scene.gui.rendering_column import RenderingColumn
 from scene.gui.story_export import build_story_export_data, save_yaml_to_file
 from scene.gui.story_header import StoryHeader
+from scene.gui.story_import import DuplicateStoryTitleDialog, import_story, parse_story_import_file, story_title_exists
 
 NO_STORY_SELECTED_TEXT = "Select a story first."
 NO_SCENES_FOR_RENDER_TEXT = "This story has no scenes."
@@ -145,6 +147,8 @@ class MainWindow(QMainWindow):
         file_menu.addSeparator()
         export_action = file_menu.addAction("&Export Story...")
         export_action.triggered.connect(self._on_export_story)
+        import_action = file_menu.addAction("&Import Story...")
+        import_action.triggered.connect(self._on_import_story)
         file_menu.addSeparator()
         exit_action = file_menu.addAction("E&xit")
         exit_action.triggered.connect(self.close)
@@ -209,6 +213,40 @@ class MainWindow(QMainWindow):
         with session_scope() as session:
             data = build_story_export_data(session, self.current_story_id)
         save_yaml_to_file(self, data)
+
+    def _on_import_story(self) -> None:
+        path, _ = QFileDialog.getOpenFileName(self, "Import Story", "", "YAML Files (*.yaml *.yml);;All Files (*)")
+        if not path:
+            return
+        try:
+            data = parse_story_import_file(path)
+        except ValueError as error:
+            QMessageBox.critical(self, "Import Story", str(error))
+            return
+
+        title = self._resolve_import_title(data["story"]["title"])
+        if title is None:
+            return
+
+        with session_scope() as session:
+            try:
+                story_id = import_story(session, data, title)
+            except (ValueError, IntegrityError) as error:
+                QMessageBox.critical(self, "Import Story", f"Could not import the story: {error}")
+                return
+
+        self._on_story_selected(story_id)
+
+    def _resolve_import_title(self, title: str) -> str | None:
+        while True:
+            with session_scope() as session:
+                taken = story_title_exists(session, title)
+            if not taken:
+                return title
+            dialog = DuplicateStoryTitleDialog(title, self)
+            if dialog.exec() != QDialog.DialogCode.Accepted:
+                return None
+            title = dialog.new_title()
 
     def _on_about(self) -> None:
         AboutDialog(self).exec()
