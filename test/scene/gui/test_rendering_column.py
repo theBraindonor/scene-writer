@@ -802,6 +802,11 @@ def test_buttons_stay_blocked_while_continuity_task_runs_after_generation(qtbot,
     assert not widget.delete_button.isEnabled()
     assert widget.progress_label.text() == "Creating continuity snapshot..."
 
+    # The continuity worker's thread has been started but scheduling when it actually reaches
+    # `accept_calls.append` is up to the OS, not this test -- wait for it rather than sampling
+    # `accept_calls` at an arbitrary moment, which was flaky under load (e.g. the full suite).
+    qtbot.waitUntil(lambda: accept_calls == [scene_id], timeout=2000)
+
     continuity_thread = widget._continuity_thread
     widget.activate_button.click()  # disabled -- must be a no-op, not a second continuity task
     assert widget._continuity_thread is continuity_thread
