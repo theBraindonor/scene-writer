@@ -5,7 +5,8 @@ from dataclasses import dataclass, field
 
 import pytest
 from textual.containers import VerticalScroll
-from textual.widgets import Static
+from textual.css.query import NoMatches
+from textual.widgets import ListView, Static
 
 import scene.agent.rendering as rendering_module
 import scene.cli.render_app as render_app_module
@@ -90,14 +91,39 @@ def gated_stream(monkeypatch, texts):
 async def wait_until(predicate, timeout=2.0, interval=0.01):
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
-        if predicate():
-            return
+        try:
+            if predicate():
+                return
+        except NoMatches:
+            # The widget the predicate queries for may not be mounted yet
+            # (e.g. the background render worker hasn't reached the point
+            # where it mounts #output-text) -- treat that as "not yet".
+            pass
         await asyncio.sleep(interval)
     raise AssertionError("condition not met within timeout")
 
 
 def make_config():
     return LLMConfig(model="openai/test-model", api_base=None, api_key=None)
+
+
+class FakeButton:
+    def __init__(self, id):
+        self.id = id
+
+
+class FakeButtonPressed:
+    """Stands in for a real Button.Pressed event, for calling on_button_pressed() directly."""
+
+    def __init__(self, button_id):
+        self.button = FakeButton(button_id)
+
+
+class FakeListViewHighlighted:
+    """Stands in for a real ListView.Highlighted event, for calling on_list_view_highlighted() directly."""
+
+    def __init__(self, item):
+        self.item = item
 
 
 def seed_story_with_scene():
@@ -147,14 +173,11 @@ async def test_render_next_scene_streams_and_persists_active_rendering(monkeypat
     script_stream(monkeypatch, [make_chunk(content="Once "), make_chunk(content="upon a time.")])
 
     app = RenderApp(make_config())
-    async with app.run_test() as pilot:
-        await pilot.pause()
-        await pilot.click(f"#story-{story_id}")
-        await pilot.pause()
+    async with app.run_test():
+        await app.push_screen(RenderScreen(story_id))
 
-        await pilot.click("#render-next")
+        app.screen.on_button_pressed(FakeButtonPressed("render-next"))
         await app.workers.wait_for_complete()
-        await pilot.pause()
 
         output = app.screen.query_one("#output-text", Static)
         assert output.content == "Once upon a time."
@@ -175,14 +198,11 @@ async def test_render_next_scene_persists_reasoning_when_present(monkeypatch):
     )
 
     app = RenderApp(make_config())
-    async with app.run_test() as pilot:
-        await pilot.pause()
-        await pilot.click(f"#story-{story_id}")
-        await pilot.pause()
+    async with app.run_test():
+        await app.push_screen(RenderScreen(story_id))
 
-        await pilot.click("#render-next")
+        app.screen.on_button_pressed(FakeButtonPressed("render-next"))
         await app.workers.wait_for_complete()
-        await pilot.pause()
 
         with session_scope() as session:
             renderings = list_renderings(session, scene_id)
@@ -205,14 +225,11 @@ async def test_output_pane_auto_scrolls_on_every_streamed_chunk(monkeypatch):
     monkeypatch.setattr(VerticalScroll, "scroll_end", spy_scroll_end)
 
     app = RenderApp(make_config())
-    async with app.run_test() as pilot:
-        await pilot.pause()
-        await pilot.click(f"#story-{story_id}")
-        await pilot.pause()
+    async with app.run_test():
+        await app.push_screen(RenderScreen(story_id))
 
-        await pilot.click("#render-next")
+        app.screen.on_button_pressed(FakeButtonPressed("render-next"))
         await app.workers.wait_for_complete()
-        await pilot.pause()
 
         # One scroll per streamed content chunk, not just once at the end.
         assert calls.count(1) >= 3
@@ -223,21 +240,17 @@ async def test_render_next_scene_shows_notice_when_all_scenes_rendered(monkeypat
     script_stream(monkeypatch, [make_chunk(content="The scene.")])
 
     app = RenderApp(make_config())
-    async with app.run_test() as pilot:
-        await pilot.pause()
-        await pilot.click(f"#story-{story_id}")
-        await pilot.pause()
-        await pilot.click("#render-next")
+    async with app.run_test():
+        await app.push_screen(RenderScreen(story_id))
+        app.screen.on_button_pressed(FakeButtonPressed("render-next"))
         await app.workers.wait_for_complete()
-        await pilot.pause()
 
         def unexpected_stream_complete(config, messages, tools=None):
             raise AssertionError("stream_complete() should not be called when all scenes are rendered")
 
         monkeypatch.setattr(rendering_module, "stream_complete", unexpected_stream_complete)
 
-        await pilot.click("#render-next")
-        await pilot.pause()
+        app.screen.on_button_pressed(FakeButtonPressed("render-next"))
 
         notice = app.screen.query_one("#output-notice", Static)
         assert str(notice.content) == ALL_RENDERED_TEXT
@@ -251,15 +264,13 @@ async def test_scene_list_highlight_updates_detail_pane():
         story_id = story.id
 
     app = RenderApp(make_config())
-    async with app.run_test() as pilot:
-        await pilot.pause()
-        await pilot.click(f"#story-{story_id}")
-        await pilot.pause()
+    async with app.run_test():
+        await app.push_screen(RenderScreen(story_id))
 
-        await pilot.click("#scene-list")
-        await pilot.pause()
-        await pilot.press("down")
-        await pilot.pause()
+        scene_list = app.screen.query_one("#scene-list", ListView)
+        second_item = list(scene_list.query(SceneListItem))[1]
+        app.screen.on_list_view_highlighted(FakeListViewHighlighted(second_item))
+        await app.workers.wait_for_complete()
 
         assert "Departure" in str(app.screen.query_one("#scene-detail", Static).content)
 
@@ -270,10 +281,8 @@ async def test_render_screen_shows_no_scenes_placeholder_when_story_has_no_scene
         story_id = story.id
 
     app = RenderApp(make_config())
-    async with app.run_test() as pilot:
-        await pilot.pause()
-        await pilot.click(f"#story-{story_id}")
-        await pilot.pause()
+    async with app.run_test():
+        await app.push_screen(RenderScreen(story_id))
 
         assert str(app.screen.query_one("#scene-detail", Static).content) == NO_SCENES_TEXT
 
@@ -308,14 +317,11 @@ async def test_regenerate_creates_new_version_and_keeps_previous(monkeypatch):
     script_stream(monkeypatch, [make_chunk(content="Second version.")])
 
     app = RenderApp(make_config())
-    async with app.run_test() as pilot:
-        await pilot.pause()
-        await pilot.click(f"#story-{story_id}")
-        await pilot.pause()
+    async with app.run_test():
+        await app.push_screen(RenderScreen(story_id))
 
-        await pilot.click("#regenerate")
+        app.screen.on_button_pressed(FakeButtonPressed("regenerate"))
         await app.workers.wait_for_complete()
-        await pilot.pause()
 
         output = app.screen.query_one("#output-text", Static)
         assert output.content == "Second version."
@@ -340,22 +346,19 @@ async def test_activating_version_updates_active_indicator_and_scene_status():
         first_id = first.id
 
     app = RenderApp(make_config())
-    async with app.run_test() as pilot:
-        await pilot.pause()
-        await pilot.click(f"#story-{story_id}")
-        await pilot.pause()
+    async with app.run_test():
+        await app.push_screen(RenderScreen(story_id))
 
         items = list(app.screen.query(VersionListItem))
         assert len(items) == 2
         assert not app.screen.query_one(f"#version-{first_id}", VersionListItem).is_active
 
-        await pilot.click(f"#version-{first_id}")
-        await pilot.pause()
+        first_item = app.screen.query_one(f"#version-{first_id}", VersionListItem)
+        app.screen.on_list_view_highlighted(FakeListViewHighlighted(first_item))
         assert app.screen.selected_rendering_id == first_id
 
-        await pilot.click("#activate-version")
+        app.screen.on_button_pressed(FakeButtonPressed("activate-version"))
         await app.workers.wait_for_complete()
-        await pilot.pause()
 
         with session_scope() as session:
             renderings = list_renderings(session, scene_id)
@@ -383,14 +386,11 @@ async def test_render_next_scene_calls_accept_scene_when_continuity_config_set(m
 
     continuity_config = make_config()
     app = RenderApp(make_config(), continuity_config)
-    async with app.run_test() as pilot:
-        await pilot.pause()
-        await pilot.click(f"#story-{story_id}")
-        await pilot.pause()
+    async with app.run_test():
+        await app.push_screen(RenderScreen(story_id))
 
-        await pilot.click("#render-next")
+        app.screen.on_button_pressed(FakeButtonPressed("render-next"))
         await app.workers.wait_for_complete()
-        await pilot.pause()
 
     assert captured["config"] is continuity_config
     assert captured["story_id"] == story_id
@@ -407,14 +407,11 @@ async def test_render_next_scene_skips_accept_scene_without_continuity_config(mo
     monkeypatch.setattr(render_app_module, "accept_scene", unexpected_accept_scene)
 
     app = RenderApp(make_config())
-    async with app.run_test() as pilot:
-        await pilot.pause()
-        await pilot.click(f"#story-{story_id}")
-        await pilot.pause()
+    async with app.run_test():
+        await app.push_screen(RenderScreen(story_id))
 
-        await pilot.click("#render-next")
+        app.screen.on_button_pressed(FakeButtonPressed("render-next"))
         await app.workers.wait_for_complete()
-        await pilot.pause()
 
 
 async def test_render_next_scene_shows_notice_when_accept_scene_fails(monkeypatch):
@@ -427,14 +424,11 @@ async def test_render_next_scene_shows_notice_when_accept_scene_fails(monkeypatc
     monkeypatch.setattr(render_app_module, "accept_scene", failing_accept_scene)
 
     app = RenderApp(make_config(), make_config())
-    async with app.run_test() as pilot:
-        await pilot.pause()
-        await pilot.click(f"#story-{story_id}")
-        await pilot.pause()
+    async with app.run_test():
+        await app.push_screen(RenderScreen(story_id))
 
-        await pilot.click("#render-next")
+        app.screen.on_button_pressed(FakeButtonPressed("render-next"))
         await app.workers.wait_for_complete()
-        await pilot.pause()
 
         notice = app.screen.query_one("#continuity-notice", Static)
         assert "boom" in str(notice.content)
@@ -460,17 +454,19 @@ async def test_activating_version_calls_regenerate_snapshots_from_when_continuit
 
     continuity_config = make_config()
     app = RenderApp(make_config(), continuity_config)
-    async with app.run_test() as pilot:
-        await pilot.pause()
-        await pilot.click(f"#story-{story_id}")
-        await pilot.pause()
+    async with app.run_test():
+        await app.push_screen(RenderScreen(story_id))
 
-        await pilot.click(f"#version-{first_id}")
-        await pilot.pause()
+        first_item = app.screen.query_one(f"#version-{first_id}", VersionListItem)
+        app.screen.on_list_view_highlighted(FakeListViewHighlighted(first_item))
 
-        await pilot.click("#activate-version")
+        app.screen.on_button_pressed(FakeButtonPressed("activate-version"))
         await app.workers.wait_for_complete()
-        await pilot.pause()
+        # _activate_selected_version() only kicks off the @work(thread=True)
+        # _regenerate_snapshots() worker as its last act, after the first
+        # wait_for_complete() call has already snapshotted the worker set —
+        # so it takes a second call to wait for that chained worker too.
+        await app.workers.wait_for_complete()
 
     assert captured["config"] is continuity_config
     assert captured["story_id"] == story_id
@@ -492,17 +488,18 @@ async def test_activating_version_shows_notice_when_regenerate_fails(monkeypatch
     monkeypatch.setattr(render_app_module, "regenerate_snapshots_from", failing_regenerate)
 
     app = RenderApp(make_config(), make_config())
-    async with app.run_test() as pilot:
-        await pilot.pause()
-        await pilot.click(f"#story-{story_id}")
-        await pilot.pause()
+    async with app.run_test():
+        await app.push_screen(RenderScreen(story_id))
 
-        await pilot.click(f"#version-{first_id}")
-        await pilot.pause()
+        first_item = app.screen.query_one(f"#version-{first_id}", VersionListItem)
+        app.screen.on_list_view_highlighted(FakeListViewHighlighted(first_item))
 
-        await pilot.click("#activate-version")
+        app.screen.on_button_pressed(FakeButtonPressed("activate-version"))
         await app.workers.wait_for_complete()
-        await pilot.pause()
+        # See the comment in the "calls_regenerate_snapshots_from" test: the
+        # chained _regenerate_snapshots() worker is only registered after the
+        # first wait_for_complete() call returns, so it needs a second call.
+        await app.workers.wait_for_complete()
 
         notice = app.screen.query_one("#continuity-notice", Static)
         assert "boom" in str(notice.content)
@@ -512,10 +509,8 @@ async def test_continuity_snapshot_panel_shows_placeholder_when_none_exists():
     story_id, _scene_id = seed_story_with_scene()
 
     app = RenderApp(make_config())
-    async with app.run_test() as pilot:
-        await pilot.pause()
-        await pilot.click(f"#story-{story_id}")
-        await pilot.pause()
+    async with app.run_test():
+        await app.push_screen(RenderScreen(story_id))
 
         panel = app.screen.query_one("#continuity-snapshot-text", Static)
         assert str(panel.content) == NO_CONTINUITY_SNAPSHOT_TEXT
@@ -527,10 +522,8 @@ async def test_continuity_snapshot_panel_shows_saved_snapshot():
         create_snapshot(session, story_id, scene_id, "Mara is at the station.")
 
     app = RenderApp(make_config())
-    async with app.run_test() as pilot:
-        await pilot.pause()
-        await pilot.click(f"#story-{story_id}")
-        await pilot.pause()
+    async with app.run_test():
+        await app.push_screen(RenderScreen(story_id))
 
         panel = app.screen.query_one("#continuity-snapshot-text", Static)
         assert str(panel.content) == "Mara is at the station."
@@ -546,14 +539,11 @@ async def test_continuity_snapshot_panel_updates_after_generation(monkeypatch):
     monkeypatch.setattr(render_app_module, "accept_scene", fake_accept_scene)
 
     app = RenderApp(make_config(), make_config())
-    async with app.run_test() as pilot:
-        await pilot.pause()
-        await pilot.click(f"#story-{story_id}")
-        await pilot.pause()
+    async with app.run_test():
+        await app.push_screen(RenderScreen(story_id))
 
-        await pilot.click("#render-next")
+        app.screen.on_button_pressed(FakeButtonPressed("render-next"))
         await app.workers.wait_for_complete()
-        await pilot.pause()
 
         panel = app.screen.query_one("#continuity-snapshot-text", Static)
         assert str(panel.content) == "Fresh state."
@@ -576,17 +566,18 @@ async def test_continuity_snapshot_panel_updates_after_activating_version(monkey
     monkeypatch.setattr(render_app_module, "regenerate_snapshots_from", fake_regenerate)
 
     app = RenderApp(make_config(), make_config())
-    async with app.run_test() as pilot:
-        await pilot.pause()
-        await pilot.click(f"#story-{story_id}")
-        await pilot.pause()
+    async with app.run_test():
+        await app.push_screen(RenderScreen(story_id))
 
-        await pilot.click(f"#version-{first_id}")
-        await pilot.pause()
+        first_item = app.screen.query_one(f"#version-{first_id}", VersionListItem)
+        app.screen.on_list_view_highlighted(FakeListViewHighlighted(first_item))
 
-        await pilot.click("#activate-version")
+        app.screen.on_button_pressed(FakeButtonPressed("activate-version"))
         await app.workers.wait_for_complete()
-        await pilot.pause()
+        # See the comment in the "calls_regenerate_snapshots_from" test: the
+        # chained _regenerate_snapshots() worker is only registered after the
+        # first wait_for_complete() call returns, so it needs a second call.
+        await app.workers.wait_for_complete()
 
         panel = app.screen.query_one("#continuity-snapshot-text", Static)
         assert str(panel.content) == "Fresh state."
@@ -600,17 +591,14 @@ async def test_delete_refuses_scene_sole_rendering():
         only_id = only.id
 
     app = RenderApp(make_config())
-    async with app.run_test() as pilot:
-        await pilot.pause()
-        await pilot.click(f"#story-{story_id}")
-        await pilot.pause()
+    async with app.run_test():
+        await app.push_screen(RenderScreen(story_id))
 
-        await pilot.click(f"#version-{only_id}")
-        await pilot.pause()
+        only_item = app.screen.query_one(f"#version-{only_id}", VersionListItem)
+        app.screen.on_list_view_highlighted(FakeListViewHighlighted(only_item))
 
-        await pilot.click("#delete-version")
+        app.screen.on_button_pressed(FakeButtonPressed("delete-version"))
         await app.workers.wait_for_complete()
-        await pilot.pause()
 
         notice = app.screen.query_one("#version-notice", Static)
         assert str(notice.content) == DELETE_SOLE_RENDERING_TEXT
@@ -629,17 +617,14 @@ async def test_delete_refuses_currently_active_rendering():
         second_id = second.id
 
     app = RenderApp(make_config())
-    async with app.run_test() as pilot:
-        await pilot.pause()
-        await pilot.click(f"#story-{story_id}")
-        await pilot.pause()
+    async with app.run_test():
+        await app.push_screen(RenderScreen(story_id))
 
-        await pilot.click(f"#version-{second_id}")
-        await pilot.pause()
+        second_item = app.screen.query_one(f"#version-{second_id}", VersionListItem)
+        app.screen.on_list_view_highlighted(FakeListViewHighlighted(second_item))
 
-        await pilot.click("#delete-version")
+        app.screen.on_button_pressed(FakeButtonPressed("delete-version"))
         await app.workers.wait_for_complete()
-        await pilot.pause()
 
         notice = app.screen.query_one("#version-notice", Static)
         assert str(notice.content) == DELETE_ACTIVE_RENDERING_TEXT
@@ -663,17 +648,14 @@ async def test_delete_removes_inactive_version():
         second_id = second.id
 
     app = RenderApp(make_config())
-    async with app.run_test() as pilot:
-        await pilot.pause()
-        await pilot.click(f"#story-{story_id}")
-        await pilot.pause()
+    async with app.run_test():
+        await app.push_screen(RenderScreen(story_id))
 
-        await pilot.click(f"#version-{first_id}")
-        await pilot.pause()
+        first_item = app.screen.query_one(f"#version-{first_id}", VersionListItem)
+        app.screen.on_list_view_highlighted(FakeListViewHighlighted(first_item))
 
-        await pilot.click("#delete-version")
+        app.screen.on_button_pressed(FakeButtonPressed("delete-version"))
         await app.workers.wait_for_complete()
-        await pilot.pause()
 
         notice = app.screen.query_one("#version-notice", Static)
         assert str(notice.content) == ""
@@ -695,14 +677,11 @@ async def test_escape_then_y_cancels_generation_and_saves_partial_content(monkey
 
     app = RenderApp(make_config())
     async with app.run_test() as pilot:
-        await pilot.pause()
-        await pilot.click(f"#story-{story_id}")
-        await pilot.pause()
+        await app.push_screen(RenderScreen(story_id))
 
-        await pilot.click("#render-next")
+        app.screen.on_button_pressed(FakeButtonPressed("render-next"))
         gates[0].set()
         await wait_until(lambda: "word0 " in app.screen.query_one("#output-text", Static).content)
-        await pilot.pause()
 
         await pilot.press("escape")
         await pilot.pause()
@@ -714,7 +693,6 @@ async def test_escape_then_y_cancels_generation_and_saves_partial_content(monkey
         # called, well before the real OS thread finishes its cleanup — so poll for
         # the thread's own final signal instead of trusting workers.wait_for_complete().
         await wait_until(lambda: str(app.screen.query_one("#cancel-notice", Static).content) == CANCELLED_SAVED_TEXT)
-        await pilot.pause()
 
         output = app.screen.query_one("#output-text", Static)
         assert output.content == "word0 word1 "
@@ -733,14 +711,11 @@ async def test_escape_then_n_keeps_generation_running_to_completion(monkeypatch)
 
     app = RenderApp(make_config())
     async with app.run_test() as pilot:
-        await pilot.pause()
-        await pilot.click(f"#story-{story_id}")
-        await pilot.pause()
+        await app.push_screen(RenderScreen(story_id))
 
-        await pilot.click("#render-next")
+        app.screen.on_button_pressed(FakeButtonPressed("render-next"))
         gates[0].set()
         await wait_until(lambda: "word0 " in app.screen.query_one("#output-text", Static).content)
-        await pilot.pause()
 
         await pilot.press("escape")
         await pilot.pause()
@@ -753,7 +728,6 @@ async def test_escape_then_n_keeps_generation_running_to_completion(monkeypatch)
         for gate in gates[1:]:
             gate.set()
         await app.workers.wait_for_complete()
-        await pilot.pause()
 
         output = app.screen.query_one("#output-text", Static)
         assert output.content == full_text

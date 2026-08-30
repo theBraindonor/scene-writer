@@ -71,11 +71,29 @@ def make_config():
     return LLMConfig(model="openai/test-model", api_base=None, api_key=None)
 
 
+class FakeButton:
+    def __init__(self, id):
+        self.id = id
+
+
+class FakeButtonPressed:
+    """Stands in for a real Button.Pressed event, for calling on_button_pressed() directly."""
+
+    def __init__(self, button_id):
+        self.button = FakeButton(button_id)
+
+    def stop(self):
+        pass
+
+
 async def send(pilot, text):
     pilot.app.query_one("#chat-input", ChatInput).text = text
     await pilot.press("enter")
+    # wait_for_complete() alone is sufficient: _respond() runs call_from_thread()
+    # for every UI update, and call_from_thread() blocks the worker thread until
+    # its callback has actually run on the app -- so by the time the worker
+    # reaches SUCCESS, every update it issued has already been applied.
     await pilot.app.workers.wait_for_complete()
-    await pilot.pause()
 
 
 def agent_blocks(app):
@@ -153,7 +171,7 @@ async def test_thinking_toggle_expands_and_stays_expanded(monkeypatch):
         block = agent_blocks(app)[0]
         assert block.query_one("#thinking-text", Markdown).display is False
 
-        await pilot.click("#thinking-toggle")
+        block.on_button_pressed(FakeButtonPressed("thinking-toggle"))
         assert block.query_one("#thinking-text", Markdown).display is True
 
         # A later turn's streaming must not auto-collapse it again once user-toggled.
