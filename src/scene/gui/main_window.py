@@ -6,6 +6,7 @@ from sqlalchemy.exc import IntegrityError
 from scene.agent.application.state import ApplicationState, ApplicationTab
 from scene.agent.application.tools.character import build_character_tools
 from scene.agent.application.tools.location import build_location_tools
+from scene.agent.application.tools.scene import build_scene_tools
 from scene.agent.application.tools.story import build_story_tools
 from scene.agent.config import get_llm_config
 from scene.agent.prompts import load_prompts
@@ -90,6 +91,7 @@ class MainWindow(QMainWindow):
             *build_story_tools(self.application_state),
             *build_character_tools(self.application_state),
             *build_location_tools(self.application_state),
+            *build_scene_tools(self.application_state),
         ]
         try:
             llm_config = get_llm_config(AgentRole.APPLICATION)
@@ -309,6 +311,7 @@ class MainWindow(QMainWindow):
     def _on_story_selected(self, story_id: int | None) -> None:
         self.current_story_id = story_id
         self.application_state.current_story_id = story_id
+        self.application_state.current_scene_id = None
         self.story_header.set_current_story(story_id)
         self.current_story_changed.emit(story_id)
 
@@ -321,6 +324,14 @@ class MainWindow(QMainWindow):
         self._sync_entity_column_tab()
 
     def _sync_entity_column_tab(self) -> None:
+        # Scene selection is application state read by later turns (unlike the
+        # fire-and-forget Characters/Locations selection below), so it's kept in sync with
+        # the Scenes widget every turn regardless of which tab is currently visible --
+        # otherwise `entity_column.set_story()` above would have already silently cleared
+        # it as a side effect of reloading the Scenes list.
+        if self.current_story_id is not None:
+            self.entity_column.refresh_scene_selection(self.application_state.current_scene_id)
+
         tab = self.application_state.current_tab
         if tab is ApplicationTab.STORY:
             self.entity_column.show_story_tab()
@@ -328,3 +339,5 @@ class MainWindow(QMainWindow):
             self.entity_column.show_characters_tab(self.application_state.current_character_id)
         elif tab is ApplicationTab.LOCATIONS:
             self.entity_column.show_locations_tab(self.application_state.current_location_id)
+        elif tab is ApplicationTab.SCENES:
+            self.entity_column.show_scenes_tab()

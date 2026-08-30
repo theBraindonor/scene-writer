@@ -13,7 +13,7 @@ from scene.agent.role import AgentRole
 from scene.core.character import list_characters
 from scene.core.location import create_location, get_location
 from scene.core.rendering import create_rendering, set_active_rendering
-from scene.core.scene import create_scene
+from scene.core.scene import create_scene, get_scene
 from scene.core.story import create_story, list_stories
 from scene.data.database import session_scope
 from scene.gui.main_window import MainWindow
@@ -377,6 +377,121 @@ def test_chat_updating_location_switches_to_locations_tab(qtbot, monkeypatch):
         assert get_location(session, location_id).name == "New Name"
     assert window.entity_column.tabs.currentIndex() == window.entity_column._LOCATIONS_TAB_INDEX
     assert window.entity_column.locations.current_location_id == location_id
+
+
+def test_chat_creating_scene_selects_it_and_switches_to_scenes_tab(qtbot, monkeypatch):
+    story_id = seed_story("A Story")
+    window = make_window(qtbot)
+    select_story(window, story_id)
+
+    tool_call = FakeToolCallDelta(index=0, id="call_1", function=FakeFunctionDelta(name="create_scene"))
+    args = FakeToolCallDelta(index=0, function=FakeFunctionDelta(arguments='{"brief": "A new scene"}'))
+    script_stream(
+        monkeypatch,
+        [
+            [make_chunk(tool_calls=[tool_call]), make_chunk(tool_calls=[args])],
+            [make_chunk(content="Added!")],
+        ],
+    )
+
+    send(qtbot, window, "please add a scene")
+
+    assert window.entity_column.tabs.currentIndex() == window.entity_column._SCENES_TAB_INDEX
+    assert window.application_state.current_scene_id is not None
+    assert window.entity_column.scenes.current_scene_id == window.application_state.current_scene_id
+
+
+def test_chat_scene_selection_persists_across_an_intervening_turn(qtbot, monkeypatch):
+    story_id = seed_story("A Story")
+    window = make_window(qtbot)
+    select_story(window, story_id)
+
+    create_call = FakeToolCallDelta(index=0, id="call_1", function=FakeFunctionDelta(name="create_scene"))
+    create_args = FakeToolCallDelta(
+        index=0, function=FakeFunctionDelta(arguments='{"brief": "The opening scene"}')
+    )
+    script_stream(
+        monkeypatch,
+        [
+            [make_chunk(tool_calls=[create_call]), make_chunk(tool_calls=[create_args])],
+            [make_chunk(content="Added!")],
+        ],
+    )
+    send(qtbot, window, "please add a scene")
+    scene_id = window.application_state.current_scene_id
+    assert scene_id is not None
+
+    character_call = FakeToolCallDelta(index=0, id="call_2", function=FakeFunctionDelta(name="create_character"))
+    character_args = FakeToolCallDelta(index=0, function=FakeFunctionDelta(arguments='{"name": "Zara"}'))
+    script_stream(
+        monkeypatch,
+        [
+            [make_chunk(tool_calls=[character_call]), make_chunk(tool_calls=[character_args])],
+            [make_chunk(content="Added!")],
+        ],
+    )
+    send(qtbot, window, "please add a character named Zara")
+
+    # The Characters tab is now visible, but the scene selected two turns ago must still be
+    # tracked, both in application state and in the (currently hidden) Scenes widget itself.
+    assert window.entity_column.tabs.currentIndex() == window.entity_column._CHARACTERS_TAB_INDEX
+    assert window.application_state.current_scene_id == scene_id
+    assert window.entity_column.scenes.current_scene_id == scene_id
+
+    update_call = FakeToolCallDelta(index=0, id="call_3", function=FakeFunctionDelta(name="update_scene"))
+    update_args = FakeToolCallDelta(
+        index=0, function=FakeFunctionDelta(arguments='{"brief": "Updated via chat"}')
+    )
+    script_stream(
+        monkeypatch,
+        [
+            [make_chunk(tool_calls=[update_call]), make_chunk(tool_calls=[update_args])],
+            [make_chunk(content="Updated!")],
+        ],
+    )
+    send(qtbot, window, "please update the scene's brief")
+
+    with session_scope() as session:
+        assert get_scene(session, scene_id).brief == "Updated via chat"
+    assert window.entity_column.tabs.currentIndex() == window.entity_column._SCENES_TAB_INDEX
+    assert window.entity_column.scenes.current_scene_id == scene_id
+
+
+def test_chat_opening_different_story_clears_scene_selection(qtbot, monkeypatch):
+    first_story_id = seed_story("First Story")
+    seed_story("Second Story")
+    window = make_window(qtbot)
+    select_story(window, first_story_id)
+
+    create_call = FakeToolCallDelta(index=0, id="call_1", function=FakeFunctionDelta(name="create_scene"))
+    create_args = FakeToolCallDelta(index=0, function=FakeFunctionDelta(arguments='{"brief": "A scene"}'))
+    script_stream(
+        monkeypatch,
+        [
+            [make_chunk(tool_calls=[create_call]), make_chunk(tool_calls=[create_args])],
+            [make_chunk(content="Added!")],
+        ],
+    )
+    send(qtbot, window, "please add a scene")
+    assert window.application_state.current_scene_id is not None
+
+    with session_scope() as session:
+        second_story_id = next(story.id for story in list_stories(session) if story.title == "Second Story")
+
+    open_call = FakeToolCallDelta(index=0, id="call_2", function=FakeFunctionDelta(name="open_story"))
+    open_args = FakeToolCallDelta(
+        index=0, function=FakeFunctionDelta(arguments=f'{{"story_id": {second_story_id}}}')
+    )
+    script_stream(
+        monkeypatch,
+        [
+            [make_chunk(tool_calls=[open_call]), make_chunk(tool_calls=[open_args])],
+            [make_chunk(content="Opened!")],
+        ],
+    )
+    send(qtbot, window, "please open the second story")
+
+    assert window.application_state.current_scene_id is None
 
 
 def find_menu(window, title):

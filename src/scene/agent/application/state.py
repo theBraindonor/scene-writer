@@ -7,6 +7,7 @@ class ApplicationTab(Enum):
     STORY = "story"
     CHARACTERS = "characters"
     LOCATIONS = "locations"
+    SCENES = "scenes"
 
 
 @dataclass
@@ -16,3 +17,4 @@ class ApplicationState:
     current_tab: ApplicationTab | None = None
     current_character_id: int | None = None
     current_location_id: int | None = None
+    current_scene_id: int | None = None

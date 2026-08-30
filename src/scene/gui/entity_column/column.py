@@ -87,6 +87,12 @@ class EntityColumn(QWidget):
         self.tabs.setCurrentIndex(self._LOCATIONS_TAB_INDEX)
         self.locations.refresh(select_location_id=select_location_id)
 
+    def refresh_scene_selection(self, select_scene_id: int | None) -> None:
+        self.scenes.refresh(select_scene_id=select_scene_id)
+
+    def show_scenes_tab(self) -> None:
+        self.tabs.setCurrentIndex(self._SCENES_TAB_INDEX)
+
     def _on_scene_selected(self, scene_id: int | None) -> None:
         self._set_current_scene(scene_id)
 
