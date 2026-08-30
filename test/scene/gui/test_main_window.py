@@ -421,6 +421,39 @@ def test_file_menu_exit_action_closes_the_window(qtbot):
     assert not window.isVisible()
 
 
+def test_file_menu_has_new_open_export_and_exit_actions(qtbot):
+    window = make_window(qtbot)
+
+    titles = [action.text() for action in find_menu(window, "&File").actions() if not action.isSeparator()]
+    assert titles == ["&New Story...", "&Open Story...", "&Export Story...", "E&xit"]
+
+
+def test_export_story_with_no_story_selected_shows_message(qtbot, monkeypatch):
+    window = make_window(qtbot)
+    seen = []
+    monkeypatch.setattr(QMessageBox, "information", lambda *args, **kwargs: seen.append(args[1:]))
+
+    find_action(find_menu(window, "&File"), "&Export Story...").trigger()
+
+    assert seen == [("Export Story", "Select a story first.")]
+
+
+def test_export_story_saves_export_data(qtbot, monkeypatch):
+    story_id = seed_story("A Story")
+    window = make_window(qtbot)
+    select_story(window, story_id)
+
+    with session_scope() as session:
+        expected = main_window_module.build_story_export_data(session, story_id)
+
+    save_calls = []
+    monkeypatch.setattr(main_window_module, "save_yaml_to_file", lambda parent, data: save_calls.append(data))
+
+    find_action(find_menu(window, "&File"), "&Export Story...").trigger()
+
+    assert save_calls == [expected]
+
+
 def seed_rendered_story():
     story_id = seed_story("A Story")
     with session_scope() as session:

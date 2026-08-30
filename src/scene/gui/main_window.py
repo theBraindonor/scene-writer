@@ -17,9 +17,10 @@ from scene.gui.entity_column.column import EntityColumn
 from scene.gui.full_story_dialog import FullStoryDialog, combine_story_prose, save_text_to_file
 from scene.gui.full_story_render import FullStoryRenderController, RenderFullStoryConfirmDialog
 from scene.gui.rendering_column import RenderingColumn
+from scene.gui.story_export import build_story_export_data, save_yaml_to_file
 from scene.gui.story_header import StoryHeader
 
-NO_STORY_SELECTED_FOR_RENDER_TEXT = "Select a story first."
+NO_STORY_SELECTED_TEXT = "Select a story first."
 NO_SCENES_FOR_RENDER_TEXT = "This story has no scenes."
 RENDERING_NOT_CONFIGURED_TEXT = "Rendering is not configured. See the Rendering panel for details."
 
@@ -142,6 +143,9 @@ class MainWindow(QMainWindow):
         open_action = file_menu.addAction("&Open Story...")
         open_action.triggered.connect(self.story_header.open_button.click)
         file_menu.addSeparator()
+        export_action = file_menu.addAction("&Export Story...")
+        export_action.triggered.connect(self._on_export_story)
+        file_menu.addSeparator()
         exit_action = file_menu.addAction("E&xit")
         exit_action.triggered.connect(self.close)
 
@@ -159,7 +163,7 @@ class MainWindow(QMainWindow):
 
     def _on_render_full_story(self) -> None:
         if self.current_story_id is None:
-            QMessageBox.information(self, "Render Full Story", NO_STORY_SELECTED_FOR_RENDER_TEXT)
+            QMessageBox.information(self, "Render Full Story", NO_STORY_SELECTED_TEXT)
             return
         with session_scope() as session:
             has_scenes = bool(list_scenes(session, self.current_story_id))
@@ -184,7 +188,7 @@ class MainWindow(QMainWindow):
 
     def _on_view_full_story(self) -> None:
         if self.current_story_id is None:
-            QMessageBox.information(self, "View Full Story", NO_STORY_SELECTED_FOR_RENDER_TEXT)
+            QMessageBox.information(self, "View Full Story", NO_STORY_SELECTED_TEXT)
             return
         with session_scope() as session:
             text = combine_story_prose(session, self.current_story_id)
@@ -192,11 +196,19 @@ class MainWindow(QMainWindow):
 
     def _on_save_full_story(self) -> None:
         if self.current_story_id is None:
-            QMessageBox.information(self, "Save Full Story", NO_STORY_SELECTED_FOR_RENDER_TEXT)
+            QMessageBox.information(self, "Save Full Story", NO_STORY_SELECTED_TEXT)
             return
         with session_scope() as session:
             text = combine_story_prose(session, self.current_story_id)
         save_text_to_file(self, text)
+
+    def _on_export_story(self) -> None:
+        if self.current_story_id is None:
+            QMessageBox.information(self, "Export Story", NO_STORY_SELECTED_TEXT)
+            return
+        with session_scope() as session:
+            data = build_story_export_data(session, self.current_story_id)
+        save_yaml_to_file(self, data)
 
     def _on_about(self) -> None:
         AboutDialog(self).exec()
