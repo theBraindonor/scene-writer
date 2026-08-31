@@ -3,9 +3,9 @@ archived: false
 created_by: John Hoff
 created_on: '2026-08-30T20:38:53Z'
 name: c010-application-agent
-status: open
+status: completed
 updated_by: John Hoff
-updated_on: '2026-08-30T20:38:59Z'
+updated_on: '2026-08-31T05:10:04Z'
 ---
 
 ## Purpose
@@ -43,3 +43,9 @@ exposed as agent tools by this campaign's encounters.
   letting it drift: add or correct the affected section, or append a dated note where a
   clean rewrite isn't warranted. The document should stay an accurate guide to the
   application agent as built, not just as originally planned.
+
+## Log
+
+### Completed - 2026-08-31T05:10:04Z - John Hoff
+
+All four planned encounters landed: e017 introduced the application agent and wired it into the GUI's chat panel for the direct-entity tier (Story/Characters/Locations), e018 added scene selection/CRUD state and the select-then-act pattern, e019 added render_scene, and e020 (an unplanned but valuable follow-up from live use) fixed markdown rendering and input focus in the chat panel. The CLI's coordinator was left untouched throughout, as scoped. docs/application-agent.md was kept in sync with implementation deviations along the way (e.g. the story_id-omission rationale, generation_guidance/generation_guideance translation). No scope items were dropped; the only deviations were small implementation-level fixes (e.g. QTextEdit -> QTextBrowser in e020), each logged on its encounter. Full pytest/lint gates passed throughout, and manual GUI smoke tests confirmed the agent driving tab switches, selection, and rendering as designed.
