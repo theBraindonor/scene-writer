@@ -102,7 +102,7 @@ def test_sending_message_streams_scripted_response(qtbot, monkeypatch):
 
     agent_blocks = transcript_widgets(panel, _AgentTurnWidget)
     assert len(agent_blocks) == 1
-    assert agent_blocks[0].answer_label.text() == "Hello there!"
+    assert agent_blocks[0].answer_label.toPlainText() == "Hello there!"
     assert panel.input_edit.isEnabled()
     assert panel.input_edit.text() == ""
 
@@ -124,9 +124,34 @@ def test_reasoning_and_tool_calls_are_shown(qtbot, monkeypatch):
     send(qtbot, panel, "please create a story")
 
     block = transcript_widgets(panel, _AgentTurnWidget)[0]
-    assert block.reasoning_label.text() == "Thinking..."
+    assert block.reasoning_label.toPlainText() == "Thinking..."
     assert "create_story" in block.tool_calls_label.text()
     assert state.current_story_id is not None
+
+
+def test_answer_renders_markdown_formatting(qtbot, monkeypatch):
+    script_stream(
+        monkeypatch,
+        [[make_chunk(content="**bold** and a [link](https://example.com)")]],
+    )
+    panel, _state = make_panel(qtbot)
+
+    send(qtbot, panel, "say something formatted")
+
+    block = transcript_widgets(panel, _AgentTurnWidget)[0]
+    assert block.answer_label.toPlainText() == "bold and a link"
+    assert 'href="https://example.com"' in block.answer_label.toHtml()
+
+
+def test_input_regains_focus_after_turn_completes(qtbot, monkeypatch):
+    script_stream(monkeypatch, [[make_chunk(content="Hello")]])
+    panel, _state = make_panel(qtbot)
+    panel.activateWindow()
+
+    send(qtbot, panel, "hi")
+
+    qtbot.waitUntil(lambda: panel.input_edit.hasFocus(), timeout=2000)
+    assert panel.input_edit.hasFocus()
 
 
 def test_tool_call_finished_emitted_once_per_tool_call_before_turn_completed(qtbot, monkeypatch):

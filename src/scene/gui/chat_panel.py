@@ -1,5 +1,17 @@
-from PySide6.QtCore import QObject, QThread, Signal
-from PySide6.QtWidgets import QHBoxLayout, QLabel, QLineEdit, QPushButton, QScrollArea, QVBoxLayout, QWidget
+from PySide6.QtCore import QObject, Qt, QThread, Signal
+from PySide6.QtGui import QResizeEvent
+from PySide6.QtWidgets import (
+    QFrame,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QPushButton,
+    QScrollArea,
+    QSizePolicy,
+    QTextBrowser,
+    QVBoxLayout,
+    QWidget,
+)
 
 from scene.agent.application.state import ApplicationState
 from scene.agent.config import LLMConfig
@@ -26,6 +38,32 @@ class _UserMessageWidget(QWidget):
         layout.addWidget(body)
 
 
+class _AutoHeightTextEdit(QTextBrowser):
+    """A read-only, markdown-rendering rich-text view that reports its natural content height
+    to its layout instead of scrolling internally -- a drop-in replacement for the QLabel it
+    used to be, for text that needs setMarkdown() rendering. QTextBrowser rather than plain
+    QTextEdit specifically for setOpenExternalLinks(), which only QTextBrowser has."""
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.setReadOnly(True)
+        self.setOpenExternalLinks(True)
+        self.setFrameStyle(QFrame.Shape.NoFrame)
+        self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self.document().documentLayout().documentSizeChanged.connect(self._update_height)
+
+    def resizeEvent(self, event: QResizeEvent) -> None:
+        super().resizeEvent(event)
+        self._update_height()
+
+    def _update_height(self, *_args: object) -> None:
+        self.document().setTextWidth(self.viewport().width())
+        height = int(self.document().size().height())
+        self.setFixedHeight(height + 2 * self.frameWidth())
+
+
 class _AgentTurnWidget(QWidget):
     """One agent turn's transcript block: reasoning, tool calls, and the streamed answer."""
 
@@ -35,8 +73,7 @@ class _AgentTurnWidget(QWidget):
         self.answer_text = ""
         self.tool_names: list[str] = []
 
-        self.reasoning_label = QLabel()
-        self.reasoning_label.setWordWrap(True)
+        self.reasoning_label = _AutoHeightTextEdit()
         self.reasoning_label.setStyleSheet("color: gray;")
         self.reasoning_label.hide()
 
@@ -44,8 +81,7 @@ class _AgentTurnWidget(QWidget):
         self.tool_calls_label.setWordWrap(True)
         self.tool_calls_label.hide()
 
-        self.answer_label = QLabel()
-        self.answer_label.setWordWrap(True)
+        self.answer_label = _AutoHeightTextEdit()
 
         layout = QVBoxLayout(self)
         layout.addWidget(section_heading("Assistant"))
@@ -55,12 +91,12 @@ class _AgentTurnWidget(QWidget):
 
     def append_reasoning(self, text: str) -> None:
         self.reasoning_text += text
-        self.reasoning_label.setText(self.reasoning_text)
+        self.reasoning_label.setMarkdown(self.reasoning_text)
         self.reasoning_label.show()
 
     def append_answer(self, text: str) -> None:
         self.answer_text += text
-        self.answer_label.setText(self.answer_text)
+        self.answer_label.setMarkdown(self.answer_text)
 
     def add_tool_call(self, name: str) -> None:
         self.tool_names.append(name)
@@ -282,5 +318,6 @@ class ChatPanel(QWidget):
         self._thread.quit()
         self._thread.wait()
         self.input_edit.setEnabled(True)
+        self.input_edit.setFocus()
         self._active_turn = None
         self.turn_completed.emit()
