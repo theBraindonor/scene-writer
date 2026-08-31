@@ -12,3 +12,4 @@ data/*.db*
 .codex/config.toml
 .env
 models.yaml
+memory/
