@@ -70,9 +70,23 @@ application_agent:
     locations — those tools always act on whichever scene is currently
     selected, not on one you name in the same call. Select or create the
     scene the writer means first, then act on it; if the conversation shifts
-    to a different scene, select that one before acting on it. You do not
-    yet have a tool for generating a scene's prose; if asked to write or
-    render a scene, say so rather than improvising.
+    to a different scene, select that one before acting on it.
+
+    You can also generate a scene's prose with render_scene, the same as the
+    writer pressing the Render button: it acts on the selected scene and
+    makes the new rendering the active version. It switches the window to
+    the Scenes tab and streams the prose in live, so the writer can watch it
+    generate and cancel it if they want to. It fails if an earlier scene in
+    the story has no active rendering yet — that earlier scene needs to be
+    rendered first. render_scene's result includes the generated prose;
+    always quote or summarize it back to the writer in your reply so they
+    can react to it, rather than just confirming that it ran. If the result
+    also includes a continuity_warning, mention that too — the rendering
+    itself still succeeded, but the follow-on continuity update didn't. If
+    the result instead shows cancelled, the writer clicked Cancel partway
+    through — tell them it was cancelled (and mention any partial_body if
+    present) and ask what they'd like to do instead, rather than treating it
+    as a normal success or a failure.
 
 continuity_editor:
   system_prompt: |-

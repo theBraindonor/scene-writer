@@ -54,6 +54,14 @@ def build_story_tools(state: ApplicationState) -> list[Tool]:
             story = get_story(session, story_id)
             if story is None:
                 return _not_found(story_id)
+            if state.current_story_id != story_id:
+                # A scene selected under the previously open story is no longer meaningful
+                # once a different story is open. Clearing it here, at the moment the story
+                # actually changes, leaves room for a select_scene/create_scene call later in
+                # the same turn to set a real selection afterward without this clobbering it —
+                # unlike clearing it in a post-turn GUI sync, which can't tell "stale from
+                # before this turn" apart from "freshly set later in this same turn."
+                state.current_scene_id = None
             state.current_story_id = story_id
             state.current_tab = ApplicationTab.STORY
             return _story_dict(story, state)
@@ -67,6 +75,9 @@ def build_story_tools(state: ApplicationState) -> list[Tool]:
                 style_guidance=arguments.get("style_guidance"),
                 generation_guideance=arguments.get("generation_guidance"),
             )
+            # A brand-new story is always different from whatever was open before, so any
+            # previously selected scene is stale — see open_story_handler's matching comment.
+            state.current_scene_id = None
             state.current_story_id = story.id
             state.current_tab = ApplicationTab.STORY
             return _story_dict(story, state)

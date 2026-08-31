@@ -27,6 +27,15 @@ def find_next_unrendered_scene(session: Session, story_id: int) -> Scene | None:
     return None
 
 
+def earlier_scenes_rendered(session: Session, story_id: int, target_position: int) -> bool:
+    for scene in list_scenes(session, story_id):
+        if scene.position >= target_position:
+            continue
+        if not any(rendering.is_active for rendering in list_renderings(session, scene.id)):
+            return False
+    return True
+
+
 def _headed(heading: str, body: str) -> str:
     return f"## {heading}\n\n{body}"
 

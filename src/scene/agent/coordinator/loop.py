@@ -33,11 +33,16 @@ class ToolCallStarted:
 
 
 @dataclass(frozen=True)
+class ToolCallFinished:
+    name: str
+
+
+@dataclass(frozen=True)
 class TurnComplete:
     pass
 
 
-TurnEvent = ReasoningDelta | ContentDelta | ToolCallStarted | TurnComplete
+TurnEvent = ReasoningDelta | ContentDelta | ToolCallStarted | ToolCallFinished | TurnComplete
 
 
 def run_turn(
@@ -116,3 +121,4 @@ def run_turn(
                 arguments = json.loads(tool_call["arguments"]) if tool_call["arguments"] else {}
                 result = tool.handler(arguments)
             history.append({"role": "tool", "tool_call_id": tool_call["id"], "content": json.dumps(result)})
+            yield ToolCallFinished(tool_call["name"])

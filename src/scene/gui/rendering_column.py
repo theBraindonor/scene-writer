@@ -32,6 +32,7 @@ from scene.agent.rendering import (
     RenderEvent,
     RenderReasoningDelta,
     build_render_messages,
+    earlier_scenes_rendered,
     stream_render,
 )
 from scene.core.continuity_snapshot import get_snapshot
@@ -42,7 +43,7 @@ from scene.core.rendering import (
     list_renderings,
     set_active_rendering,
 )
-from scene.core.scene import get_scene, list_scenes
+from scene.core.scene import get_scene
 from scene.data.database import session_scope
 from scene.gui.list_sizing import fit_list_height_to_contents
 from scene.gui.section_heading import section_heading
@@ -69,15 +70,6 @@ RENDER_LABEL = "Render"
 PREVIEW_PROMPT_LABEL = "Preview Prompt"
 BODY_FONT_SCALE = 1.5
 GENERATE_BUTTON_WIDTH = 120
-
-
-def _earlier_scenes_rendered(session, story_id: int, target_position: int) -> bool:
-    for scene in list_scenes(session, story_id):
-        if scene.position >= target_position:
-            continue
-        if not any(rendering.is_active for rendering in list_renderings(session, scene.id)):
-            return False
-    return True
 
 
 class _RenderWorker(QObject):
@@ -226,6 +218,8 @@ class RenderingColumn(QWidget):
         self._continuity_display_scene_id: int | None = None
         self.last_generation_cancelled = False
         self.last_generation_error: str | None = None
+        self.last_generation_body = ""
+        self.last_continuity_error: str | None = None
 
         self.no_selection_label = QLabel(NO_SCENE_SELECTED_TEXT)
         self.no_selection_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -354,7 +348,7 @@ class RenderingColumn(QWidget):
             renderings = list_renderings(session, self.current_scene_id)
             earlier_rendered = True
             if self.current_story_id is not None and self.current_scene_position is not None:
-                earlier_rendered = _earlier_scenes_rendered(
+                earlier_rendered = earlier_scenes_rendered(
                     session, self.current_story_id, self.current_scene_position
                 )
 
@@ -606,6 +600,8 @@ class RenderingColumn(QWidget):
         error_message = self._error_message
         self.last_generation_cancelled = was_cancelled
         self.last_generation_error = error_message
+        self.last_generation_body = assembled
+        self.last_continuity_error = None
 
         self._generating = False
         self._generating_scene_id = None
@@ -670,7 +666,12 @@ class RenderingColumn(QWidget):
         worker.moveToThread(thread)
         thread.started.connect(worker.run)
         worker.event_received.connect(self._on_continuity_event)
-        worker.error_occurred.connect(lambda message: self._show_continuity_notice(error_template.format(error=message)))
+
+        def on_error(message: str) -> None:
+            self.last_continuity_error = message
+            self._show_continuity_notice(error_template.format(error=message))
+
+        worker.error_occurred.connect(on_error)
         worker.finished.connect(self._on_continuity_task_finished)
         self._continuity_thread = thread
         self._continuity_worker = worker

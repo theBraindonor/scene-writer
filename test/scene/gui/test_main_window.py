@@ -1,3 +1,4 @@
+import threading
 from dataclasses import dataclass, field
 
 import pytest
@@ -8,11 +9,15 @@ from PySide6.QtWidgets import QDialog, QFileDialog, QMessageBox
 import scene.agent.coordinator.loop as loop_module
 import scene.data.database as database_module
 import scene.gui.main_window as main_window_module
+import scene.gui.rendering_column as rendering_column_module
 from scene.agent.config import LLMConfig
+from scene.agent.continuity import ContinuitySceneComplete, ContinuitySceneStarted
+from scene.agent.rendering import RenderComplete, RenderContentDelta
 from scene.agent.role import AgentRole
 from scene.core.character import list_characters
+from scene.core.continuity_snapshot import create_snapshot, get_snapshot
 from scene.core.location import create_location, get_location
-from scene.core.rendering import create_rendering, set_active_rendering
+from scene.core.rendering import create_rendering, list_renderings, set_active_rendering
 from scene.core.scene import create_scene, get_scene
 from scene.core.story import create_story, list_stories
 from scene.data.database import session_scope
@@ -79,9 +84,9 @@ def script_stream(monkeypatch, rounds):
     monkeypatch.setattr(loop_module, "stream_complete", fake_stream_complete)
 
 
-def send(qtbot, window, text):
+def send(qtbot, window, text, timeout=2000):
     window.chat_panel.input_edit.setText(text)
-    with qtbot.waitSignal(window.chat_panel.turn_completed, timeout=2000):
+    with qtbot.waitSignal(window.chat_panel.turn_completed, timeout=timeout):
         window.chat_panel.input_edit.returnPressed.emit()
 
 
@@ -492,6 +497,213 @@ def test_chat_opening_different_story_clears_scene_selection(qtbot, monkeypatch)
     send(qtbot, window, "please open the second story")
 
     assert window.application_state.current_scene_id is None
+
+
+def test_chat_opening_a_story_and_selecting_a_scene_in_the_same_turn(qtbot, monkeypatch):
+    # Regression test: MainWindow._on_chat_turn_completed used to unconditionally re-clear
+    # application_state.current_scene_id whenever the open story changed during a turn (by
+    # delegating to _on_story_selected), even if a *later* tool call in that same turn (like
+    # select_scene, here) had already set a real selection after open_story ran. That silently
+    # discarded the selection the person asked for whenever "open a story and select a scene"
+    # happened in one message.
+    story_id = seed_story("A Story")
+    with session_scope() as session:
+        scene = create_scene(session, story_id=story_id, position=0, brief="The only scene")
+        scene_id = scene.id
+
+    window = make_window(qtbot)
+
+    open_call = FakeToolCallDelta(index=0, id="call_1", function=FakeFunctionDelta(name="open_story"))
+    open_args = FakeToolCallDelta(index=0, function=FakeFunctionDelta(arguments=f'{{"story_id": {story_id}}}'))
+    select_call = FakeToolCallDelta(index=1, id="call_2", function=FakeFunctionDelta(name="select_scene"))
+    select_args = FakeToolCallDelta(index=1, function=FakeFunctionDelta(arguments=f'{{"scene_id": {scene_id}}}'))
+    script_stream(
+        monkeypatch,
+        [
+            [
+                make_chunk(tool_calls=[open_call]),
+                make_chunk(tool_calls=[open_args]),
+                make_chunk(tool_calls=[select_call]),
+                make_chunk(tool_calls=[select_args]),
+            ],
+            [make_chunk(content="Opened the story and selected its first scene.")],
+        ],
+    )
+
+    send(qtbot, window, "please open the story and select its first scene")
+
+    assert window.application_state.current_story_id == story_id
+    assert window.application_state.current_scene_id == scene_id
+    assert window.entity_column.tabs.currentIndex() == window.entity_column._SCENES_TAB_INDEX
+    assert window.entity_column.scenes.current_scene_id == scene_id
+
+
+def _fake_render_stream(events):
+    def _stream(config, messages):
+        yield from events
+
+    return _stream
+
+
+def _fake_accept_scene(events, narrative_state="New narrative state."):
+    def _stream(config, session, story_id, scene_id):
+        yield ContinuitySceneStarted(scene_id)
+        yield from events
+        snapshot = create_snapshot(session, story_id, scene_id, narrative_state)
+        yield ContinuitySceneComplete(scene_id, snapshot)
+
+    return _stream
+
+
+def _render_scene_call(call_id="call_1"):
+    render_call = FakeToolCallDelta(index=0, id=call_id, function=FakeFunctionDelta(name="render_scene"))
+    render_args = FakeToolCallDelta(index=0, function=FakeFunctionDelta(arguments="{}"))
+    return [make_chunk(tool_calls=[render_call]), make_chunk(tool_calls=[render_args])]
+
+
+def test_chat_rendering_scene_streams_live_and_persists(qtbot, monkeypatch):
+    story_id = seed_story("A Story")
+    with session_scope() as session:
+        first = create_scene(session, story_id=story_id, position=0, brief="First scene")
+        rendering = create_rendering(session, scene_id=first.id, body="First scene prose.")
+        set_active_rendering(session, rendering.id)
+        second = create_scene(session, story_id=story_id, position=1, brief="Second scene")
+        second_id = second.id
+
+    window = make_window(qtbot)
+    select_story(window, story_id)
+    window.application_state.current_scene_id = second_id
+    # Show a different tab so switching to Scenes is a real, observable effect of the render.
+    window.entity_column.show_story_tab()
+
+    monkeypatch.setattr(
+        rendering_column_module,
+        "stream_render",
+        _fake_render_stream([RenderContentDelta("The chat-driven prose."), RenderComplete("The chat-driven prose.")]),
+    )
+    monkeypatch.setattr(rendering_column_module, "stream_accept_scene", _fake_accept_scene([]))
+
+    script_stream(monkeypatch, [_render_scene_call(), [make_chunk(content="Here it is!")]])
+
+    send(qtbot, window, "please render the second scene", timeout=5000)
+
+    assert window.entity_column.tabs.currentIndex() == window.entity_column._SCENES_TAB_INDEX
+    with session_scope() as session:
+        renderings = list_renderings(session, second_id)
+        assert len(renderings) == 1
+        assert renderings[0].is_active
+        assert renderings[0].body == "The chat-driven prose."
+        snapshot = get_snapshot(session, story_id, second_id)
+        assert snapshot is not None
+        assert snapshot.narrative_state == "New narrative state."
+    assert window.rendering_column.body_view.toPlainText() == "The chat-driven prose."
+    assert window.rendering_column.current_scene_id == second_id
+
+
+def test_chat_ui_syncs_after_each_tool_call_not_just_at_turn_end(qtbot, monkeypatch):
+    # Regression test: opening a story, selecting a scene, and rendering it all in one message
+    # used to leave the story header and entity column showing stale/empty state until the
+    # *entire* turn (including the render) finished, even though open_story and select_scene
+    # had already completed and the render was visibly streaming. MainWindow only resynced once,
+    # at turn_completed. It should resync after each tool call instead.
+    story_id = seed_story("A Story")
+    with session_scope() as session:
+        first = create_scene(session, story_id=story_id, position=0, brief="First scene")
+        rendering = create_rendering(session, scene_id=first.id, body="First scene prose.")
+        set_active_rendering(session, rendering.id)
+        second = create_scene(session, story_id=story_id, position=1, brief="Second scene")
+        second_id = second.id
+
+    window = make_window(qtbot)
+    assert window.current_story_id is None
+
+    gate = threading.Event()
+
+    def _stream(config, messages):
+        yield RenderContentDelta("Partial ")
+        gate.wait(timeout=2)
+        yield RenderContentDelta("prose.")
+        yield RenderComplete("Partial prose.")
+
+    monkeypatch.setattr(rendering_column_module, "stream_render", _stream)
+    monkeypatch.setattr(rendering_column_module, "stream_accept_scene", _fake_accept_scene([]))
+
+    open_call = FakeToolCallDelta(index=0, id="call_1", function=FakeFunctionDelta(name="open_story"))
+    open_args = FakeToolCallDelta(index=0, function=FakeFunctionDelta(arguments=f'{{"story_id": {story_id}}}'))
+    select_call = FakeToolCallDelta(index=1, id="call_2", function=FakeFunctionDelta(name="select_scene"))
+    select_args = FakeToolCallDelta(index=1, function=FakeFunctionDelta(arguments=f'{{"scene_id": {second_id}}}'))
+    script_stream(
+        monkeypatch,
+        [
+            [
+                make_chunk(tool_calls=[open_call]),
+                make_chunk(tool_calls=[open_args]),
+                make_chunk(tool_calls=[select_call]),
+                make_chunk(tool_calls=[select_args]),
+            ],
+            _render_scene_call(call_id="call_3"),
+            [make_chunk(content="All done!")],
+        ],
+    )
+
+    window.chat_panel.input_edit.setText("open the story, select the second scene, and render it")
+    with qtbot.waitSignal(window.chat_panel.turn_completed, timeout=5000):
+        window.chat_panel.input_edit.returnPressed.emit()
+        # The render is now gated mid-stream -- open_story and select_scene have already
+        # completed and returned, so their post-tool-call sync should already have landed,
+        # well before the turn (and the render inside it) finishes.
+        qtbot.waitUntil(lambda: window.rendering_column.body_view.toPlainText() == "Partial ", timeout=2000)
+        assert window.current_story_id == story_id
+        assert window.story_header.story_label.text() == "A Story"
+        assert window.entity_column.current_story_id == story_id
+        assert window.entity_column.tabs.currentIndex() == window.entity_column._SCENES_TAB_INDEX
+        assert window.entity_column.scenes.current_scene_id == second_id
+        gate.set()
+
+    assert window.application_state.current_scene_id == second_id
+
+
+def test_chat_cancelling_a_live_render_reports_cancellation_and_does_not_hang(qtbot, monkeypatch):
+    story_id = seed_story("A Story")
+    with session_scope() as session:
+        scene = create_scene(session, story_id=story_id, position=0, brief="Only scene")
+        scene_id = scene.id
+
+    window = make_window(qtbot)
+    select_story(window, story_id)
+    window.application_state.current_scene_id = scene_id
+
+    gate = threading.Event()
+
+    def _stream(config, messages):
+        yield RenderContentDelta("Partial ")
+        gate.wait(timeout=2)
+        yield RenderContentDelta("text.")
+        yield RenderComplete("Partial text.")
+
+    monkeypatch.setattr(rendering_column_module, "stream_render", _stream)
+    monkeypatch.setattr(QMessageBox, "question", staticmethod(lambda *args, **kwargs: QMessageBox.StandardButton.Yes))
+
+    def unexpected_accept_scene(config, session, story_id, scene_id):
+        raise AssertionError("stream_accept_scene() should not be called for a cancelled generation")
+        yield  # pragma: no cover - never reached, keeps this a generator function
+
+    monkeypatch.setattr(rendering_column_module, "stream_accept_scene", unexpected_accept_scene)
+
+    script_stream(monkeypatch, [_render_scene_call(), [make_chunk(content="Understood, cancelled.")]])
+
+    window.chat_panel.input_edit.setText("please render this scene")
+    with qtbot.waitSignal(window.chat_panel.turn_completed, timeout=5000):
+        window.chat_panel.input_edit.returnPressed.emit()
+        qtbot.waitUntil(lambda: window.rendering_column.body_view.toPlainText() == "Partial ", timeout=2000)
+        window.rendering_column.cancel_button.click()
+        gate.set()
+
+    assert window.chat_panel.input_edit.isEnabled()
+    with session_scope() as session:
+        renderings = list_renderings(session, scene_id)
+        assert len(renderings) == 1
+        assert renderings[0].body == "Partial "
 
 
 def find_menu(window, title):

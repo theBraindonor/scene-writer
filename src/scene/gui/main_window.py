@@ -6,6 +6,7 @@ from sqlalchemy.exc import IntegrityError
 from scene.agent.application.state import ApplicationState, ApplicationTab
 from scene.agent.application.tools.character import build_character_tools
 from scene.agent.application.tools.location import build_location_tools
+from scene.agent.application.tools.render import AgentRenderRequest, build_render_tools
 from scene.agent.application.tools.scene import build_scene_tools
 from scene.agent.application.tools.story import build_story_tools
 from scene.agent.config import get_llm_config
@@ -41,6 +42,7 @@ class MainWindow(QMainWindow):
     """
 
     current_story_changed = Signal(object)  # int | None
+    agent_render_requested = Signal(object)  # AgentRenderRequest — see build_render_tools
 
     def __init__(self) -> None:
         super().__init__()
@@ -85,6 +87,7 @@ class MainWindow(QMainWindow):
         # cascade, but the rendering column depends on that reset explicitly per its contract
         # rather than relying on that as an implementation detail of EntityColumn.
         self.current_story_changed.connect(lambda _story_id: self.rendering_column.set_scene(None))
+        self.agent_render_requested.connect(self._on_agent_render_requested)
 
         self.application_state = ApplicationState()
         self.application_tools = [
@@ -92,6 +95,7 @@ class MainWindow(QMainWindow):
             *build_character_tools(self.application_state),
             *build_location_tools(self.application_state),
             *build_scene_tools(self.application_state),
+            *build_render_tools(self.application_state, rendering_llm_config, self.agent_render_requested.emit),
         ]
         try:
             llm_config = get_llm_config(AgentRole.APPLICATION)
@@ -108,6 +112,7 @@ class MainWindow(QMainWindow):
             error=llm_error,
         )
         self.chat_panel.turn_completed.connect(self._on_chat_turn_completed)
+        self.chat_panel.tool_call_finished.connect(self._sync_ui_from_application_state)
         self.chat_panel.collapse_toggled.connect(self._on_chat_collapse_toggled)
         self._chat_expanded_height: int | None = None
 
@@ -315,10 +320,52 @@ class MainWindow(QMainWindow):
         self.story_header.set_current_story(story_id)
         self.current_story_changed.emit(story_id)
 
+    def _on_agent_render_requested(self, request: AgentRenderRequest) -> None:
+        # Runs on this window's own (main/GUI) thread even though it's triggered by
+        # `agent_render_requested.emit(request)` from the chat turn's background thread — Qt
+        # resolves a same-object signal/slot connection to a queued delivery whenever emit()
+        # is called from a different thread than the object's own affinity, exactly like
+        # `_RenderWorker`/`_TurnWorker` already rely on for their own cross-thread signals.
+        # `request.done`/`request.result` are how the waiting tool-call thread learns what
+        # happened once this (and any follow-on continuity update) settles.
+        self.entity_column.refresh_scene_selection(request.scene_id)
+        self.entity_column.show_scenes_tab()
+
+        def on_settled() -> None:
+            self.rendering_column.scene_settled.disconnect(on_settled)
+            request.result["cancelled"] = self.rendering_column.last_generation_cancelled
+            request.result["error"] = self.rendering_column.last_generation_error
+            request.result["continuity_error"] = self.rendering_column.last_continuity_error
+            request.result["body"] = self.rendering_column.last_generation_body
+            request.done.set()
+
+        self.rendering_column.scene_settled.connect(on_settled)
+        if not self.rendering_column.generate_now():
+            self.rendering_column.scene_settled.disconnect(on_settled)
+            request.result["error"] = "Could not start generation (it may already be busy)."
+            request.done.set()
+
     def _on_chat_turn_completed(self) -> None:
+        self._sync_ui_from_application_state()
+
+    def _sync_ui_from_application_state(self) -> None:
+        # Shared by `tool_call_finished` (after *each* tool call within a turn) and
+        # `turn_completed` (once more at the very end, covering the final content-only round).
+        # Running this after every tool call, not just once at the end, is what makes a
+        # multi-tool turn (e.g. open_story then select_scene then render_scene) show its
+        # effects on screen as each one lands, instead of leaving the story header/entity
+        # column stale until the whole turn — including anything slow like a render — finishes.
         agent_story_id = self.application_state.current_story_id
         if agent_story_id != self.current_story_id:
-            self._on_story_selected(agent_story_id)
+            # Deliberately not `_on_story_selected(agent_story_id)`: that also clears
+            # `application_state.current_scene_id`, which is correct for a manual StoryHeader
+            # switch (a single atomic action) but wrong here — open_story/create_story already
+            # cleared it themselves at the moment the story actually changed *during the turn*,
+            # so by now it correctly reflects whatever a later select_scene/create_scene call
+            # in that same turn set. Re-clearing it here would silently undo that.
+            self.current_story_id = agent_story_id
+            self.story_header.set_current_story(agent_story_id)
+            self.current_story_changed.emit(agent_story_id)
         else:
             self.entity_column.set_story(self.current_story_id)
         self._sync_entity_column_tab()

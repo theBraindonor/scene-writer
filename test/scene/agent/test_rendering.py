@@ -9,6 +9,7 @@ from scene.agent.rendering import (
     RenderContentDelta,
     RenderReasoningDelta,
     build_render_messages,
+    earlier_scenes_rendered,
     find_next_unrendered_scene,
     stream_render,
 )
@@ -67,6 +68,27 @@ def test_find_next_unrendered_scene_returns_none_when_all_rendered(session, stor
     _activate(session, scene.id, "First scene prose.")
 
     assert find_next_unrendered_scene(session, story_id) is None
+
+
+def test_earlier_scenes_rendered_true_when_no_earlier_scenes(session, story_id):
+    create_scene(session, story_id=story_id, position=0, brief="First")
+
+    assert earlier_scenes_rendered(session, story_id, target_position=0) is True
+
+
+def test_earlier_scenes_rendered_true_when_all_earlier_scenes_active(session, story_id):
+    first = create_scene(session, story_id=story_id, position=0, brief="First")
+    create_scene(session, story_id=story_id, position=1, brief="Second")
+    _activate(session, first.id, "First scene prose.")
+
+    assert earlier_scenes_rendered(session, story_id, target_position=1) is True
+
+
+def test_earlier_scenes_rendered_false_when_an_earlier_scene_has_no_active_rendering(session, story_id):
+    create_scene(session, story_id=story_id, position=0, brief="First")
+    create_scene(session, story_id=story_id, position=1, brief="Second")
+
+    assert earlier_scenes_rendered(session, story_id, target_position=1) is False
 
 
 def test_build_render_messages_system_message_has_story_brief_and_style_guidance(session, story_id):

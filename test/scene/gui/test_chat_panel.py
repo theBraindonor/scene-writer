@@ -129,6 +129,39 @@ def test_reasoning_and_tool_calls_are_shown(qtbot, monkeypatch):
     assert state.current_story_id is not None
 
 
+def test_tool_call_finished_emitted_once_per_tool_call_before_turn_completed(qtbot, monkeypatch):
+    open_call = FakeToolCallDelta(index=0, id="call_1", function=FakeFunctionDelta(name="open_story"))
+    open_args = FakeToolCallDelta(index=0, function=FakeFunctionDelta(arguments="{}"))
+    select_call = FakeToolCallDelta(index=1, id="call_2", function=FakeFunctionDelta(name="unarchive_story"))
+    select_args = FakeToolCallDelta(index=1, function=FakeFunctionDelta(arguments="{}"))
+    script_stream(
+        monkeypatch,
+        [
+            [
+                make_chunk(tool_calls=[open_call]),
+                make_chunk(tool_calls=[open_args]),
+                make_chunk(tool_calls=[select_call]),
+                make_chunk(tool_calls=[select_args]),
+            ],
+            [make_chunk(content="Done!")],
+        ],
+    )
+    panel, _state = make_panel(qtbot)
+
+    finished_count = []
+    panel.tool_call_finished.connect(lambda: finished_count.append(len(finished_count)))
+    turn_completed_seen_at = []
+    panel.turn_completed.connect(lambda: turn_completed_seen_at.append(len(finished_count)))
+
+    send(qtbot, panel, "please open and unarchive")
+
+    # Both tool calls fired tool_call_finished, and both had already fired by the time
+    # turn_completed arrived -- proving the per-tool-call signal isn't just a duplicate of
+    # the end-of-turn one, but genuinely precedes it.
+    assert len(finished_count) == 2
+    assert turn_completed_seen_at == [2]
+
+
 def test_blank_input_is_ignored(qtbot, monkeypatch):
     def unexpected_stream_complete(config, messages, tools=None):
         raise AssertionError("stream_complete() should not be called for blank input")

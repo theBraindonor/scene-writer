@@ -7,6 +7,7 @@ from scene.agent.coordinator.loop import (
     ContentDelta,
     ReasoningDelta,
     Tool,
+    ToolCallFinished,
     ToolCallStarted,
     TurnEvent,
     run_turn,
@@ -111,10 +112,16 @@ class ChatPanel(QWidget):
 
     Emits `turn_completed` after every finished turn — `MainWindow` connects to it to sync the
     sidebar's story selection with `ApplicationState.current_story_id` and to refresh the
-    entity column, since the agent's tools may have changed either.
+    entity column, since the agent's tools may have changed either. Also emits
+    `tool_call_finished` after *each* tool call within a turn (not just at the end), since a
+    single turn can call several tools in sequence (e.g. open_story then select_scene) whose
+    combined effect on `ApplicationState` should be visible on screen incrementally, as each
+    one lands, rather than staying invisible until the whole turn — including anything slow,
+    like a `render_scene` call later in the same turn — finishes.
     """
 
     turn_completed = Signal()
+    tool_call_finished = Signal()
     collapse_toggled = Signal(bool)  # expanded
 
     EXPANDED_LABEL = "▾ Chat"
@@ -250,6 +257,9 @@ class ChatPanel(QWidget):
         self._thread.start()
 
     def _on_turn_event(self, event: TurnEvent) -> None:
+        if isinstance(event, ToolCallFinished):
+            self.tool_call_finished.emit()
+            return
         block = self._active_turn
         if block is None:
             return

@@ -3,6 +3,7 @@ import pytest
 import scene.data.database as database_module
 from scene.agent.application.state import ApplicationState, ApplicationTab
 from scene.agent.application.tools.story import build_story_tools
+from scene.core.scene import create_scene
 from scene.core.story import archive_story, create_story, get_story
 from scene.data.database import session_scope
 
@@ -60,6 +61,47 @@ def test_open_story_makes_it_current_and_switches_to_story_tab(seeded_story_id):
     assert result["is_open"] is True
     assert state.current_story_id == seeded_story_id
     assert state.current_tab is ApplicationTab.STORY
+
+
+def test_open_story_clears_a_scene_selected_under_a_different_story(seeded_story_id):
+    with session_scope() as session:
+        other_story = create_story(session, title="Other Story", story_brief="Another brief")
+        other_story_id = other_story.id
+        scene = create_scene(session, story_id=other_story_id, position=0, brief="A scene")
+        scene_id = scene.id
+
+    state = ApplicationState(current_story_id=other_story_id, current_scene_id=scene_id)
+    tools = tools_by_name(state)
+
+    tools["open_story"].handler({"story_id": seeded_story_id})
+
+    assert state.current_scene_id is None
+
+
+def test_open_story_preserves_scene_selection_when_reopening_the_same_story(seeded_story_id):
+    with session_scope() as session:
+        scene = create_scene(session, story_id=seeded_story_id, position=0, brief="A scene")
+        scene_id = scene.id
+
+    state = ApplicationState(current_story_id=seeded_story_id, current_scene_id=scene_id)
+    tools = tools_by_name(state)
+
+    tools["open_story"].handler({"story_id": seeded_story_id})
+
+    assert state.current_scene_id == scene_id
+
+
+def test_create_story_clears_a_previously_selected_scene(seeded_story_id):
+    with session_scope() as session:
+        scene = create_scene(session, story_id=seeded_story_id, position=0, brief="A scene")
+        scene_id = scene.id
+
+    state = ApplicationState(current_story_id=seeded_story_id, current_scene_id=scene_id)
+    tools = tools_by_name(state)
+
+    tools["create_story"].handler({"title": "New Story", "story_brief": "A new story brief"})
+
+    assert state.current_scene_id is None
 
 
 def test_open_story_missing_story_id_returns_clear_error():

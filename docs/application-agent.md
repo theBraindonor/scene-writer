@@ -229,7 +229,17 @@ generation (and the follow-on continuity-snapshot update) has finished, returnin
 generated prose so the conversation can continue based on the actual result — approve it,
 critique it, or fold feedback into another `update_scene` + `render_scene` pass. It can
 fail the same way the manual button can: an earlier scene in the story has no active
-rendering yet and must be rendered first.
+rendering yet and must be rendered first. If the rendering itself succeeds but the
+follow-on continuity-snapshot update fails, the tool still returns the generated prose (the
+rendering is saved and made active either way) alongside a warning describing the
+continuity failure.
+
+`render_scene` switches the window to the Scenes tab immediately, before generation starts,
+and the prose streams into the Rendering column live — exactly as if the writer had pressed
+Render themselves. This means the writer can watch it happen and, at any point, click
+Cancel. A cancellation is reported back as its own result (whatever prose had streamed so
+far, distinct from an error), so the agent knows the writer interrupted it and can ask what
+they'd like instead rather than treating the interruption as either success or failure.
 
 ## Example conversations
 

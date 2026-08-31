@@ -5,6 +5,7 @@ from scene.agent.coordinator.loop import (
     ContentDelta,
     ReasoningDelta,
     Tool,
+    ToolCallFinished,
     ToolCallStarted,
     TurnComplete,
     run_turn,
@@ -125,7 +126,7 @@ def test_single_tool_call_round_trip(monkeypatch):
     history = []
     events = list(run_turn(StubConfig(), history, "please echo", tools=tools))
 
-    assert events == [ToolCallStarted("echo"), ContentDelta("Done"), TurnComplete()]
+    assert events == [ToolCallStarted("echo"), ToolCallFinished("echo"), ContentDelta("Done"), TurnComplete()]
     assert handled_args == [{"text": "hi"}]
     assert len(calls) == 2
     assert calls[0]["tools"] == [tools[0].schema]
@@ -170,6 +171,8 @@ def test_multiple_tool_calls_streamed_in_one_turn(monkeypatch):
     assert events == [
         ToolCallStarted("add_one"),
         ToolCallStarted("add_one"),
+        ToolCallFinished("add_one"),
+        ToolCallFinished("add_one"),
         ContentDelta("Both done"),
         TurnComplete(),
     ]
