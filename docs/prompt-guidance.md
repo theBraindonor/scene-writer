@@ -41,6 +41,14 @@ The application persists the prose in `rendering.body` and the resulting text st
 `continuity_snapshot.narrative_state`. Only an active rendering should be used as
 continuity source material.
 
+The scene writer and continuity editor are configured as independent agent roles
+(`SCENE_RENDERING_AGENT` and `SCENE_CONTINUITY_AGENT` respectively — see `README.md`),
+so they can be pointed at different models as described above. The exact system-prompt
+and instruction text each one sends is authored in the tracked `agent-prompts.yaml`
+file, not hardcoded in Python — treat this document as guidance for that file's
+content and the surrounding message structure, and `agent-prompts.yaml` as the current
+source of truth for the literal wording in production.
+
 ## Prompt context
 
 The scene writer does not need the full novel on every request. Construct its prompt
@@ -190,15 +198,28 @@ returns a replacement text state, not commentary and not fiction.
 ```text
 You are the continuity editor for a serialized novel.
 
-Given the current canonical narrative state and one newly accepted scene, write the
-updated canonical narrative state.
+You maintain a single canonical narrative state: a compact snapshot of where the story
+stands right now, not a log of everything that has happened. Given the current
+narrative state and one newly accepted scene, write the updated narrative state.
 
 Rules:
-- Preserve all prior facts unless the new scene explicitly changes them.
+- Fold the scene's consequences into the existing state; do not simply append it as a
+  new entry. Update or replace details the scene changes, and merge related facts
+  together instead of restating them separately.
+- Once a detail no longer matters for future scenes — a resolved thread, a passing
+  detail, a superseded state — drop it rather than carrying it forward. You are
+  maintaining relevance, not an archive.
+- Preserve facts the scene doesn't touch only insofar as they still matter going
+  forward.
 - Add only facts directly stated or unambiguously shown in the scene.
 - Do not infer unstated motives, identities, timelines, or future events.
 - Do not resolve an open thread unless the scene explicitly resolves it.
-- Keep the result concise and factual, using the supplied snapshot format.
+- Group related facts together (by character, location, or plot thread) rather than
+  listing them in the order they were learned, so the state stays easy to scan no
+  matter how many scenes have occurred.
+- The state's length should track what currently matters to the story, not the number
+  of scenes so far — if it is growing steadily longer as scenes accumulate, that means
+  older detail needs compressing or cutting, not that it should keep expanding.
 - Return the updated narrative state only. Do not include analysis, explanations, or
   the scene prose.
 
@@ -208,6 +229,13 @@ CURRENT CANONICAL NARRATIVE STATE
 ACCEPTED SCENE
 {active_rendering_body}
 ```
+
+Note the deliberate shift from "preserve everything unless changed" to actively
+pruning and compressing: an accumulate-by-default snapshot grows without bound as a
+story lengthens, defeating the point of keeping it small enough for a compact model to
+read and update efficiently (see "Use compact prose cards for the scene writer" above).
+Treat relevance-based pruning as the current design intent, not an implementation
+detail to relax later.
 
 The application may show the resulting snapshot to the user for review before it is
 used as canon. This is especially useful when a small model may over-infer from prose.
